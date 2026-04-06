@@ -19,6 +19,13 @@ Use this split instead:
 - `GitHub Actions`: compiles the sketch into `.bin`
 - `ESP32`: receives the `.bin` through the existing OTA page at `http://192.168.1.64`
 
+Netlify-specific files in this repo:
+
+- [netlify.toml](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\netlify.toml)
+- [site/index.html](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\site\index.html)
+- [netlify/functions/dispatch-build.js](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\netlify\functions\dispatch-build.js)
+- [netlify/functions/build-status.js](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\netlify\functions\build-status.js)
+
 This repo now includes a GitHub Actions workflow at:
 
 - [.github/workflows/build-jarvis.yml](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\.github\workflows\build-jarvis.yml)
@@ -59,10 +66,17 @@ Then open:
 If you want compilation to happen on GitHub instead of on your PC:
 
 1. Push this repo to GitHub with [.github/workflows/build-jarvis.yml](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\.github\workflows\build-jarvis.yml) in place
-2. Trigger it with `workflow_dispatch`
-3. Pass your pasted sketch as `source_b64`
-4. Download the generated `.bin` artifact
-5. Use this OTA web app to upload that `.bin` to the ESP32
+2. Set these Netlify environment variables:
+   - `GITHUB_TOKEN`
+   - `GITHUB_OWNER`
+   - `GITHUB_REPO`
+   - `GITHUB_WORKFLOW_FILE`
+   - `GITHUB_REF`
+3. Deploy this repo to Netlify
+4. Open the deployed site
+5. Paste your sketch and trigger the GitHub build
+6. Open the workflow run from the status panel and download the artifact
+7. Use your OTA upload flow with the generated `.bin`
 
 ## Important Security Note
 
@@ -73,6 +87,8 @@ To trigger GitHub builds safely from a public site, you still need one of:
 - a tiny backend proxy you control
 - Netlify server-side function with encrypted environment variables
 - manual workflow dispatch from GitHub
+
+This repo now includes the `Netlify server-side function` approach.
 
 ## Features
 
@@ -125,3 +141,28 @@ If autodetection does not find the correct values, enter them manually in the we
 Compilation now depends on `arduino-cli` and the same ESP32 core/libraries your GitHub build used. If `arduino-cli` is not installed, or those libraries are missing, compilation will fail until the local toolchain matches your old workflow.
 
 If you switch to GitHub Actions for compilation, the local PC no longer needs the full compile toolchain. It only needs to upload the final `.bin` to the ESP32 OTA page.
+
+## Netlify Environment Variables
+
+Set these in the Netlify site configuration:
+
+- `GITHUB_TOKEN`
+  Use a GitHub personal access token with permission to trigger workflows and read actions.
+- `GITHUB_OWNER`
+  Example: `Supercoderboi`
+- `GITHUB_REPO`
+  Example: `JarvisOnline`
+- `GITHUB_WORKFLOW_FILE`
+  Example: `build-jarvis.yml`
+- `GITHUB_REF`
+  Example: `master`
+
+## Residual Limitation
+
+The Netlify site can trigger builds and inspect workflow status, but this repo does not yet implement artifact download-and-extract or direct browser upload of the artifact `.bin` to the ESP32. The current online path is:
+
+1. Trigger build from the site
+2. Open the GitHub workflow run
+3. Download the artifact zip
+4. Extract the `.bin`
+5. Upload it to the ESP32 OTA page

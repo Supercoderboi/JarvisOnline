@@ -6,4 +6,4 @@ workspace/
 .env.*
 node_modules/
 dist/
-
+.netlify

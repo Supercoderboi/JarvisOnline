@@ -1,0 +1,9 @@
+{
+  "name": "jarvis-online-ota",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Netlify frontend and functions for GitHub-triggered ESP32 firmware builds",
+  "scripts": {
+    "dev": "netlify dev"
+  }
+}
