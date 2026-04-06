@@ -1,0 +1,4 @@
+{
+  "build_id": "dev",
+  "bin_url": "https://jarvisupload.netlify.app/.netlify/functions/latest-firmware"
+}

@@ -20,6 +20,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      SKETCH_NAME: ${{ github.event.inputs.sketch_name || 'Jarvis' }}
+      BUILD_ID: ${{ github.run_number }}-${{ github.sha }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -45,17 +49,42 @@ jobs:
         shell: bash
         env:
           SOURCE_B64: ${{ github.event.inputs.source_b64 }}
-          SKETCH_NAME: ${{ github.event.inputs.sketch_name || 'Jarvis' }}
         run: |
           if [ -n "$SOURCE_B64" ]; then
             mkdir -p "$SKETCH_NAME"
             printf "%s" "$SOURCE_B64" | base64 --decode > "$SKETCH_NAME/$SKETCH_NAME.ino"
           fi
 
+      - name: Inject firmware build id
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          sketch_name = os.environ["SKETCH_NAME"]
+          build_id = os.environ["BUILD_ID"]
+          path = Path(sketch_name) / f"{sketch_name}.ino"
+          text = path.read_text(encoding="utf-8")
+
+          marker = '#ifndef FW_BUILD_ID'
+          block = f'''#ifndef FW_BUILD_ID
+          #define FW_BUILD_ID "{build_id}"
+          #endif
+          '''
+
+          if marker in text:
+              start = text.index('#ifndef FW_BUILD_ID')
+              end = text.index('#endif', start) + len('#endif')
+              text = text[:start] + block + text[end:]
+          else:
+              text = block + "\n" + text
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
       - name: Compile code
         shell: bash
-        env:
-          SKETCH_NAME: ${{ github.event.inputs.sketch_name || 'Jarvis' }}
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
@@ -65,10 +94,8 @@ jobs:
       - name: Prepare firmware asset
         id: firmware
         shell: bash
-        env:
-          SKETCH_NAME: ${{ github.event.inputs.sketch_name || 'Jarvis' }}
         run: |
-          mkdir -p release-assets
+          mkdir -p release-assets firmware
           BIN_PATH=$(find "$SKETCH_NAME/build" -name "*.bin" | head -n 1)
           if [ -z "$BIN_PATH" ]; then
             echo "No firmware .bin found" >&2
@@ -76,6 +103,16 @@ jobs:
           fi
           cp "$BIN_PATH" release-assets/Jarvis.ino.bin
           echo "bin_path=release-assets/Jarvis.ino.bin" >> "$GITHUB_OUTPUT"
+
+      - name: Write firmware manifest
+        shell: bash
+        run: |
+          cat > firmware/manifest.json <<EOF
+          {
+            "build_id": "${BUILD_ID}",
+            "bin_url": "https://jarvisupload.netlify.app/.netlify/functions/latest-firmware"
+          }
+          EOF
 
       - name: Upload BIN file
         uses: actions/upload-artifact@v4
@@ -92,3 +129,12 @@ jobs:
           prerelease: true
           files: ${{ steps.firmware.outputs.bin_path }}
           overwrite_files: true
+
+      - name: Commit updated manifest
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add firmware/manifest.json
+          git diff --cached --quiet || git commit -m "Update firmware manifest [skip ci]"
+          git push

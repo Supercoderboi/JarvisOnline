@@ -30,6 +30,7 @@ Netlify-specific files in this repo:
 This repo now includes a GitHub Actions workflow at:
 
 - [.github/workflows/build-jarvis.yml](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\.github\workflows\build-jarvis.yml)
+- [firmware/manifest.json](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\firmware\manifest.json)
 
 That workflow can:
 
@@ -79,6 +80,23 @@ If you want compilation to happen on GitHub instead of on your PC:
 6. Wait for the status panel to show a successful build
 7. Download `Jarvis.ino.bin` directly from the site
 8. Use your OTA upload flow with that `.bin`
+
+## Automatic Device Update Support
+
+The workflow now also writes [firmware/manifest.json](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\firmware\manifest.json) with an automatic `build_id` based on the GitHub Actions run.
+
+Your ESP32 firmware can fetch that manifest and compare:
+
+- current `FW_BUILD_ID`
+- remote `build_id`
+
+If they differ, the device can download the latest firmware binary from:
+
+- `/.netlify/functions/latest-firmware`
+
+Important:
+
+- Current Netlify firmware URL: `https://jarvisupload.netlify.app/.netlify/functions/latest-firmware`
 
 ## Important Security Note
 
