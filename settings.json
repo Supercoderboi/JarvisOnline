@@ -1,0 +1,9 @@
+{
+  "target_url": "http://192.168.1.64",
+  "board_fqbn": "esp32:esp32:esp32:PartitionScheme=min_spiffs",
+  "sketch_name": "Jarvis",
+  "additional_urls": "https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json",
+  "upload_action": "/update",
+  "upload_field_name": "update",
+  "build_flags": ""
+}

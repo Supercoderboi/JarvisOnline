@@ -1,0 +1,66 @@
+name: Build Jarvis ESP32
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_b64:
+        description: Base64-encoded sketch source for Jarvis/Jarvis.ino
+        required: false
+        type: string
+      sketch_name:
+        description: Sketch folder and .ino base name
+        required: false
+        default: Jarvis
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install arduino-cli
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
+          sudo mv bin/arduino-cli /usr/local/bin/
+
+      - name: Setup ESP32 Core and libraries
+        run: |
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli lib install "ArduinoJson" "DHT sensor library" "Adafruit GFX Library" "Adafruit PCD8544 Nokia 5110 LCD library"
+          mkdir -p ~/Arduino/libraries
+          if [ ! -d ~/Arduino/libraries/ESP32-BLE-Keyboard ]; then
+            git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
+          fi
+          if [ ! -d ~/Arduino/libraries/NimBLE-Arduino ]; then
+            git clone https://github.com/h2zero/NimBLE-Arduino.git ~/Arduino/libraries/NimBLE-Arduino
+          fi
+
+      - name: Inject workflow source when provided
+        shell: bash
+        env:
+          SOURCE_B64: ${{ github.event.inputs.source_b64 }}
+          SKETCH_NAME: ${{ github.event.inputs.sketch_name || 'Jarvis' }}
+        run: |
+          if [ -n "$SOURCE_B64" ]; then
+            mkdir -p "$SKETCH_NAME"
+            printf "%s" "$SOURCE_B64" | base64 --decode > "$SKETCH_NAME/$SKETCH_NAME.ino"
+          fi
+
+      - name: Compile code
+        shell: bash
+        env:
+          SKETCH_NAME: ${{ github.event.inputs.sketch_name || 'Jarvis' }}
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
+            "$SKETCH_NAME/$SKETCH_NAME.ino" \
+            --export-binaries
+
+      - name: Upload BIN file
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Firmware
+          path: ${{ github.event.inputs.sketch_name || 'Jarvis' }}/build/esp32.esp32.esp32/*.bin
