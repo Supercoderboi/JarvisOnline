@@ -25,6 +25,7 @@ Netlify-specific files in this repo:
 - [site/index.html](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\site\index.html)
 - [netlify/functions/dispatch-build.js](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\netlify\functions\dispatch-build.js)
 - [netlify/functions/build-status.js](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\netlify\functions\build-status.js)
+- [netlify/functions/latest-firmware.js](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\netlify\functions\latest-firmware.js)
 
 This repo now includes a GitHub Actions workflow at:
 
@@ -75,8 +76,9 @@ If you want compilation to happen on GitHub instead of on your PC:
 3. Deploy this repo to Netlify
 4. Open the deployed site
 5. Paste your sketch and trigger the GitHub build
-6. Open the workflow run from the status panel and download the artifact
-7. Use your OTA upload flow with the generated `.bin`
+6. Wait for the status panel to show a successful build
+7. Download `Jarvis.ino.bin` directly from the site
+8. Use your OTA upload flow with that `.bin`
 
 ## Important Security Note
 
@@ -162,7 +164,6 @@ Set these in the Netlify site configuration:
 The Netlify site can trigger builds and inspect workflow status, but this repo does not yet implement artifact download-and-extract or direct browser upload of the artifact `.bin` to the ESP32. The current online path is:
 
 1. Trigger build from the site
-2. Open the GitHub workflow run
-3. Download the artifact zip
-4. Extract the `.bin`
-5. Upload it to the ESP32 OTA page
+2. Wait for successful completion
+3. Download `Jarvis.ino.bin` from the site
+4. Upload it to the ESP32 OTA page

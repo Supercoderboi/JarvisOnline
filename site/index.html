@@ -162,6 +162,7 @@ void loop() {
         <div class="meta" id="summaryText">No workflow run checked yet.</div>
         <div class="actions">
           <a id="runLink" href="#" target="_blank" rel="noreferrer" hidden>Open workflow run</a>
+          <a id="firmwareLink" href="/.netlify/functions/latest-firmware" hidden>Download latest Jarvis.ino.bin</a>
         </div>
         <label>Raw status</label>
         <pre id="resultBox">Waiting for a workflow run.</pre>
@@ -174,12 +175,14 @@ void loop() {
     const resultBox = document.getElementById("resultBox");
     const summaryText = document.getElementById("summaryText");
     const runLink = document.getElementById("runLink");
+    const firmwareLink = document.getElementById("firmwareLink");
     const sourceCode = document.getElementById("sourceCode");
     const sketchName = document.getElementById("sketchName");
     const dispatchBtn = document.getElementById("dispatchBtn");
     const statusBtn = document.getElementById("statusBtn");
 
     let lastDispatchAt = "";
+    let pollTimer = null;
 
     function setStatus(message, isError = false) {
       statusBox.hidden = false;
@@ -194,6 +197,7 @@ void loop() {
     async function triggerBuild() {
       setStatus("Queueing GitHub workflow...");
       runLink.hidden = true;
+      firmwareLink.hidden = true;
 
       const response = await fetch("/.netlify/functions/dispatch-build", {
         method: "POST",
@@ -214,7 +218,8 @@ void loop() {
       lastDispatchAt = data.dispatched_at || "";
       setStatus("GitHub workflow queued.");
       setResult(data);
-      summaryText.textContent = "Workflow dispatched. Use Check Latest Build after a short wait.";
+      summaryText.textContent = "Workflow dispatched. Polling for completion.";
+      startPolling();
     }
 
     async function checkStatus() {
@@ -238,6 +243,7 @@ void loop() {
         setResult(data);
         summaryText.textContent = "No matching run found yet.";
         runLink.hidden = true;
+        firmwareLink.hidden = true;
         return;
       }
 
@@ -252,6 +258,33 @@ void loop() {
         runLink.hidden = false;
       } else {
         runLink.hidden = true;
+      }
+
+      if (data.latest_firmware && run.conclusion === "success") {
+        firmwareLink.hidden = false;
+      } else {
+        firmwareLink.hidden = true;
+      }
+
+      if (run.status === "completed") {
+        stopPolling();
+      }
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = window.setInterval(() => {
+        checkStatus().catch((error) => {
+          setStatus(error.message, true);
+          stopPolling();
+        });
+      }, 10000);
+    }
+
+    function stopPolling() {
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+        pollTimer = null;
       }
     }
 

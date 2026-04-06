@@ -47,6 +47,7 @@ exports.handler = async (event) => {
     }
 
     let artifacts = [];
+    let latestFirmware = null;
     if (run.status === "completed") {
       const artifactsResponse = await fetch(run.artifacts_url, {
         headers: githubHeaders(config.token)
@@ -60,6 +61,22 @@ exports.handler = async (event) => {
           expired: artifact.expired,
           created_at: artifact.created_at
         }));
+      }
+
+      const releaseResponse = await fetch(
+        `https://api.github.com/repos/${config.owner}/${config.repo}/releases/tags/latest-firmware`,
+        { headers: githubHeaders(config.token) }
+      );
+      if (releaseResponse.ok) {
+        const releasePayload = await releaseResponse.json();
+        const asset = (releasePayload.assets || []).find((item) => item.name === "Jarvis.ino.bin") || releasePayload.assets?.[0];
+        if (asset) {
+          latestFirmware = {
+            name: asset.name,
+            size_in_bytes: asset.size,
+            download_url: asset.browser_download_url
+          };
+        }
       }
     }
 
@@ -76,7 +93,8 @@ exports.handler = async (event) => {
         updated_at: run.updated_at,
         run_number: run.run_number
       },
-      artifacts
+      artifacts,
+      latest_firmware: latestFirmware
     });
   } catch (error) {
     return json(500, { error: error.message });

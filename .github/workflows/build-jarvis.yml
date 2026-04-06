@@ -13,6 +13,9 @@ on:
         default: Jarvis
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -59,8 +62,33 @@ jobs:
             "$SKETCH_NAME/$SKETCH_NAME.ino" \
             --export-binaries
 
+      - name: Prepare firmware asset
+        id: firmware
+        shell: bash
+        env:
+          SKETCH_NAME: ${{ github.event.inputs.sketch_name || 'Jarvis' }}
+        run: |
+          mkdir -p release-assets
+          BIN_PATH=$(find "$SKETCH_NAME/build" -name "*.bin" | head -n 1)
+          if [ -z "$BIN_PATH" ]; then
+            echo "No firmware .bin found" >&2
+            exit 1
+          fi
+          cp "$BIN_PATH" release-assets/Jarvis.ino.bin
+          echo "bin_path=release-assets/Jarvis.ino.bin" >> "$GITHUB_OUTPUT"
+
       - name: Upload BIN file
         uses: actions/upload-artifact@v4
         with:
           name: Jarvis-Firmware
-          path: ${{ github.event.inputs.sketch_name || 'Jarvis' }}/build/esp32.esp32.esp32/*.bin
+          path: ${{ steps.firmware.outputs.bin_path }}
+
+      - name: Publish latest firmware release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-firmware
+          name: Latest Firmware
+          body: Latest compiled Jarvis firmware from GitHub Actions.
+          prerelease: true
+          files: ${{ steps.firmware.outputs.bin_path }}
+          overwrite_files: true
