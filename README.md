@@ -95,6 +95,10 @@ If they differ, the device can download the latest firmware binary from:
 
 - `/.netlify/functions/latest-firmware`
 
+For device-side update checks, serve the manifest from Netlify as:
+
+- `/firmware/manifest.json`
+
 Important:
 
 - Current Netlify firmware URL: `https://jarvisupload.netlify.app/.netlify/functions/latest-firmware`

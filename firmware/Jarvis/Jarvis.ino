@@ -45,7 +45,7 @@ const long GMT_OFFSET_SEC = 19800;
 const int DAYLIGHT_OFFSET_SEC = 0;
 
 const char *CURRENT_BUILD_ID = FW_BUILD_ID;
-const char *UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/Supercoderboi/JarvisOnline/master/firmware/manifest.json";
+const char *UPDATE_MANIFEST_URL = "https://jarvisupload.netlify.app/firmware/manifest.json";
 
 const uint8_t shield_width = 48;
 const uint8_t shield_height = 48;
@@ -161,7 +161,7 @@ void sendToJarvis(String msg);
 void showOtaMessage(const String &line1, const String &line2 = "", const String &line3 = "");
 bool checkForGitHubUpdate();
 bool performFirmwareUpdate(const String &binUrl);
-String fetchRemoteBuildId(String &binUrl);
+String fetchRemoteBuildId(String &binUrl, String &errorMessage);
 bool isRemoteBuildNewer(const String &remoteBuildId);
 void startManualOtaServer();
 void stopManualOtaServer();
@@ -987,17 +987,21 @@ bool isRemoteBuildNewer(const String &remoteBuildId) {
   return remoteBuildId.length() > 0 && remoteBuildId != String(CURRENT_BUILD_ID);
 }
 
-String fetchRemoteBuildId(String &binUrl) {
+String fetchRemoteBuildId(String &binUrl, String &errorMessage) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setTimeout(15000);
 
-  if (!http.begin(client, UPDATE_MANIFEST_URL)) return "";
+  if (!http.begin(client, UPDATE_MANIFEST_URL)) {
+    errorMessage = "begin() failed";
+    return "";
+  }
 
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
+    errorMessage = "HTTP " + String(httpCode);
     http.end();
     return "";
   }
@@ -1007,10 +1011,20 @@ String fetchRemoteBuildId(String &binUrl) {
 
   StaticJsonDocument<512> doc;
   DeserializationError error = deserializeJson(doc, payload);
-  if (error) return "";
+  if (error) {
+    errorMessage = String("JSON ") + error.c_str();
+    return "";
+  }
 
   binUrl = doc["bin_url"] | "";
-  return doc["build_id"] | "";
+  String buildId = doc["build_id"] | "";
+  if (buildId.length() == 0 || binUrl.length() == 0) {
+    errorMessage = "Missing fields";
+    return "";
+  }
+
+  errorMessage = "";
+  return buildId;
 }
 
 bool performFirmwareUpdate(const String &binUrl) {
@@ -1145,19 +1159,28 @@ void stopManualOtaServer() {
 bool checkForGitHubUpdate() {
   if (WiFi.status() != WL_CONNECTED) {
     showOtaMessage("OTA Error", "No WiFi");
+    Serial.println("[OTA] WiFi not connected");
     delay(2000);
     return false;
   }
 
   showOtaMessage("Checking...", "GitHub");
   String binUrl = "";
-  String remoteBuildId = fetchRemoteBuildId(binUrl);
+  String manifestError = "";
+  String remoteBuildId = fetchRemoteBuildId(binUrl, manifestError);
 
   if (remoteBuildId.length() == 0 || binUrl.length() == 0) {
-    showOtaMessage("OTA Error", "Bad manifest");
+    Serial.println("[OTA] Manifest URL: " + String(UPDATE_MANIFEST_URL));
+    Serial.println("[OTA] Manifest error: " + manifestError);
+    if (manifestError.length() == 0) manifestError = "Bad manifest";
+    showOtaMessage("OTA Error", manifestError);
     delay(2000);
     return false;
   }
+
+  Serial.println("[OTA] Current build: " + String(CURRENT_BUILD_ID));
+  Serial.println("[OTA] Remote build: " + remoteBuildId);
+  Serial.println("[OTA] BIN URL: " + binUrl);
 
   if (!isRemoteBuildNewer(remoteBuildId)) {
     showOtaMessage("Device Software", "Up To Date!");
