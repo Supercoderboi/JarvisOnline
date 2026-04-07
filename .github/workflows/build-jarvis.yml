@@ -22,6 +22,7 @@ jobs:
 
     env:
       SKETCH_NAME: ${{ github.event.inputs.sketch_name || 'Jarvis' }}
+      SKETCH_DIR: firmware/${{ github.event.inputs.sketch_name || 'Jarvis' }}
       BUILD_ID: ${{ github.run_number }}-${{ github.sha }}
 
     steps:
@@ -51,8 +52,8 @@ jobs:
           SOURCE_B64: ${{ github.event.inputs.source_b64 }}
         run: |
           if [ -n "$SOURCE_B64" ]; then
-            mkdir -p "$SKETCH_NAME"
-            printf "%s" "$SOURCE_B64" | base64 --decode > "$SKETCH_NAME/$SKETCH_NAME.ino"
+            mkdir -p "$SKETCH_DIR"
+            printf "%s" "$SOURCE_B64" | base64 --decode > "$SKETCH_DIR/$SKETCH_NAME.ino"
           fi
 
       - name: Inject firmware build id
@@ -63,8 +64,9 @@ jobs:
           import os
 
           sketch_name = os.environ["SKETCH_NAME"]
+          sketch_dir = os.environ["SKETCH_DIR"]
           build_id = os.environ["BUILD_ID"]
-          path = Path(sketch_name) / f"{sketch_name}.ino"
+          path = Path(sketch_dir) / f"{sketch_name}.ino"
           text = path.read_text(encoding="utf-8")
 
           marker = '#ifndef FW_BUILD_ID'
@@ -88,7 +90,7 @@ jobs:
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
-            "$SKETCH_NAME/$SKETCH_NAME.ino" \
+            "$SKETCH_DIR/$SKETCH_NAME.ino" \
             --export-binaries
 
       - name: Prepare firmware asset
@@ -96,7 +98,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets firmware
-          BIN_PATH=$(find "$SKETCH_NAME/build" -name "*.bin" | head -n 1)
+          BIN_PATH=$(find "$SKETCH_DIR/build" -name "*.bin" | head -n 1)
           if [ -z "$BIN_PATH" ]; then
             echo "No firmware .bin found" >&2
             exit 1

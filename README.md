@@ -31,6 +31,7 @@ This repo now includes a GitHub Actions workflow at:
 
 - [.github/workflows/build-jarvis.yml](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\.github\workflows\build-jarvis.yml)
 - [firmware/manifest.json](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\firmware\manifest.json)
+- [firmware/Jarvis/Jarvis.ino](C:\Users\Ethean\Desktop\random projects\codextest\web-ota-app\firmware\Jarvis\Jarvis.ino)
 
 That workflow can:
 
@@ -124,7 +125,7 @@ This repo now includes the `Netlify server-side function` approach.
 The web app now targets the same style of compile command as your workflow:
 
 ```powershell
-arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs Jarvis/Jarvis.ino --export-binaries
+arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs firmware/Jarvis/Jarvis.ino --export-binaries
 ```
 
 That means your local machine needs the same environment installed first:
