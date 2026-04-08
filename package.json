@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Netlify frontend and functions for GitHub-triggered ESP32 firmware builds",
   "scripts": {
+    "build": "node scripts/prepare-site.js",
     "dev": "netlify dev"
   }
 }

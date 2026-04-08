@@ -47,6 +47,11 @@ const int DAYLIGHT_OFFSET_SEC = 0;
 const char *CURRENT_BUILD_ID = FW_BUILD_ID;
 const char *UPDATE_MANIFEST_URL = "https://jarvisupload.netlify.app/firmware/manifest.json";
 
+String httpStatusText(HTTPClient &http, int httpCode) {
+  if (httpCode >= 0) return "HTTP " + String(httpCode);
+  return http.errorToString(httpCode).c_str();
+}
+
 const uint8_t shield_width = 48;
 const uint8_t shield_height = 48;
 const uint8_t PROGMEM shield_bitmap[] = {
@@ -1001,7 +1006,7 @@ String fetchRemoteBuildId(String &binUrl, String &errorMessage) {
 
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
-    errorMessage = "HTTP " + String(httpCode);
+    errorMessage = httpStatusText(http, httpCode);
     http.end();
     return "";
   }
@@ -1045,7 +1050,9 @@ bool performFirmwareUpdate(const String &binUrl) {
 
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
-    showOtaMessage("Update Error", "HTTP: " + String(httpCode));
+    String status = httpStatusText(http, httpCode);
+    Serial.println("[OTA] Firmware GET failed: " + status);
+    showOtaMessage("Update Error", status);
     http.end();
     delay(2000);
     return false;
