@@ -171,12 +171,20 @@
     const sketchName = document.getElementById("sketchName");
     const dispatchBtn = document.getElementById("dispatchBtn");
     const statusBtn = document.getElementById("statusBtn");
+    const sourceDraftKey = "jarvis-online-ota-source-draft";
 
     let lastDispatchAt = "";
     let pollTimer = null;
 
     async function loadDefaultSource() {
       try {
+        const savedDraft = window.localStorage.getItem(sourceDraftKey);
+        if (savedDraft !== null) {
+          sourceCode.value = savedDraft;
+          setStatus("Loaded your saved editor draft.");
+          return;
+        }
+
         const response = await fetch("/firmware/Jarvis.ino", { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`Source load failed: HTTP ${response.status}`);
@@ -187,6 +195,10 @@
         sourceCode.value = "";
         setStatus(error.message, true);
       }
+    }
+
+    function persistSourceDraft() {
+      window.localStorage.setItem(sourceDraftKey, sourceCode.value);
     }
 
     function setStatus(message, isError = false) {
@@ -303,6 +315,10 @@
       checkStatus().catch((error) => {
         setStatus(error.message, true);
       });
+    });
+
+    sourceCode.addEventListener("input", () => {
+      persistSourceDraft();
     });
 
     loadDefaultSource().catch((error) => {
