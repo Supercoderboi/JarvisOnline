@@ -45,6 +45,9 @@ exports.handler = async (event) => {
       isBase64Encoded: true,
       headers: {
         "Content-Type": "application/octet-stream",
+        "Content-Length": String(fileBuffer.length),
+        "Content-Encoding": "identity",
+        "Cache-Control": "no-transform",
         "Content-Disposition": 'attachment; filename="Jarvis.ino.bin"',
         "Access-Control-Allow-Origin": "*"
       },
