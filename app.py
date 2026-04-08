@@ -549,9 +549,10 @@ def build_project(source_code: str, fqbn: str, sketch_name: str, additional_urls
 
     build_dir = sketch_dir / "build"
     firmware_candidates = sorted(build_dir.rglob("*.bin"))
-    firmware_path = next((path for path in firmware_candidates if path.name.endswith(".bin")), None)
+    expected_name = f"{sketch_name}.ino.bin"
+    firmware_path = next((path for path in firmware_candidates if path.name == expected_name), None)
     if firmware_path is None:
-        raise RuntimeError(f"Build succeeded but firmware not found.\n\n{log}")
+        raise RuntimeError(f"Build succeeded but {expected_name} was not found.\n\n{log}")
 
     shutil.copyfile(firmware_path, LAST_BIN)
     return LAST_BIN, log

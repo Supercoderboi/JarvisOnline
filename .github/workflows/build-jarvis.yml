@@ -98,9 +98,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets firmware
-          BIN_PATH=$(find "$SKETCH_DIR/build" -name "*.bin" | head -n 1)
+          BIN_PATH=$(find "$SKETCH_DIR/build" -name "$SKETCH_NAME.ino.bin" | head -n 1)
           if [ -z "$BIN_PATH" ]; then
-            echo "No firmware .bin found" >&2
+            echo "No sketch firmware .bin found" >&2
             exit 1
           fi
           cp "$BIN_PATH" release-assets/Jarvis.ino.bin

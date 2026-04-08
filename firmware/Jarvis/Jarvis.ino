@@ -1171,6 +1171,7 @@ bool checkForGitHubUpdate() {
     return false;
   }
 
+  Serial.println("[OTA] Free heap before manifest request: " + String(ESP.getFreeHeap()));
   showOtaMessage("Checking...", "GitHub");
   String binUrl = "";
   String manifestError = "";
@@ -1203,6 +1204,10 @@ bool checkForGitHubUpdate() {
 void runOtaMode() {
   if (!otaStarted) {
     otaStarted = true;
+    Serial.println("[OTA] Free heap before btStop(): " + String(ESP.getFreeHeap()));
+    btStop();
+    delay(500);
+    Serial.println("[OTA] Free heap after btStop(): " + String(ESP.getFreeHeap()));
 
     bool handledOnline = checkForGitHubUpdate();
     if (handledOnline) {
