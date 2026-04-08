@@ -1060,8 +1060,12 @@ bool performFirmwareUpdate(const String &binUrl) {
 
   int contentLength = http.getSize();
   WiFiClient *stream = http.getStreamPtr();
+  Serial.println("[OTA] Current sketch size: " + String(ESP.getSketchSize()));
+  Serial.println("[OTA] Free sketch space: " + String(ESP.getFreeSketchSpace()));
+  Serial.println("[OTA] Incoming content length: " + String(contentLength));
 
   if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
+    Update.printError(Serial);
     showOtaMessage("Update Error", "Not enough", "space");
     http.end();
     delay(2000);
