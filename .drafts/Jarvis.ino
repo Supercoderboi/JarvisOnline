@@ -330,7 +330,8 @@ void loop() {
       currentState != TIMER_ALARM &&
       currentState != OTA_UPDATE &&
       currentState != MUSIC &&
-      currentState != SOCIAL) {
+      currentState != SOCIAL &&
+currentState != SENSORS) {
     currentState = SCREENSAVER;
     display.clearDisplay();
   }
