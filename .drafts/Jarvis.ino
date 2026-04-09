@@ -13,11 +13,11 @@
 #include <Update.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
-//V9.4.26B
+
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-
+#define testversion "V9.4.26C"
 #define NOKIA_CLK 18
 #define NOKIA_DIN 19
 #define NOKIA_DC 21
@@ -214,6 +214,13 @@ void setup() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(BLACK);
+
+display.setCursor(0, 10);
+    display.print(testversion);
+display.display();
+
+delay(1000);
+display.clearDisplay();
 
   display.drawBitmap(18, 0, shield_bitmap, shield_width, shield_height, WHITE, BLACK);
   display.display();
