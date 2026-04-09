@@ -143,6 +143,8 @@
         <textarea id="sourceCode" spellcheck="false" placeholder="Loading Jarvis source..."></textarea>
 
         <div class="actions">
+          <button id="saveDraftBtn" class="secondary" type="button">Save Draft</button>
+          <button id="loadDraftBtn" class="secondary" type="button">Load Saved Draft</button>
           <button id="dispatchBtn" type="button">Trigger GitHub Build</button>
           <button id="statusBtn" class="secondary" type="button">Check Latest Build</button>
         </div>
@@ -169,6 +171,8 @@
     const firmwareLink = document.getElementById("firmwareLink");
     const sourceCode = document.getElementById("sourceCode");
     const sketchName = document.getElementById("sketchName");
+    const saveDraftBtn = document.getElementById("saveDraftBtn");
+    const loadDraftBtn = document.getElementById("loadDraftBtn");
     const dispatchBtn = document.getElementById("dispatchBtn");
     const statusBtn = document.getElementById("statusBtn");
     const sourceDraftKey = "jarvis-online-ota-source-draft";
@@ -176,12 +180,37 @@
     let lastDispatchAt = "";
     let pollTimer = null;
 
+    async function loadSavedDraft() {
+      const url = new URL("/.netlify/functions/load-draft", window.location.origin);
+      url.searchParams.set("sketch_name", sketchName.value || "Jarvis");
+      const response = await fetch(url, { cache: "no-store" });
+      const data = await response.json();
+
+      if (response.status === 404) {
+        return false;
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "Saved draft load failed.");
+      }
+
+      sourceCode.value = data.source_code || "";
+      persistSourceDraft();
+      setStatus(`Loaded saved GitHub draft from ${data.path}.`);
+      return true;
+    }
+
     async function loadDefaultSource() {
       try {
+        const loadedRemoteDraft = await loadSavedDraft();
+        if (loadedRemoteDraft) {
+          return;
+        }
+
         const savedDraft = window.localStorage.getItem(sourceDraftKey);
         if (savedDraft !== null) {
           sourceCode.value = savedDraft;
-          setStatus("Loaded your saved editor draft.");
+          setStatus("Loaded your saved browser draft.");
           return;
         }
 
@@ -190,6 +219,7 @@
           throw new Error(`Source load failed: HTTP ${response.status}`);
         }
         sourceCode.value = await response.text();
+        persistSourceDraft();
         setStatus("Loaded current Jarvis source into the editor.");
       } catch (error) {
         sourceCode.value = "";
@@ -199,6 +229,30 @@
 
     function persistSourceDraft() {
       window.localStorage.setItem(sourceDraftKey, sourceCode.value);
+    }
+
+    async function saveDraft() {
+      setStatus("Saving draft to GitHub...");
+
+      const response = await fetch("/.netlify/functions/save-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_code: sourceCode.value,
+          sketch_name: sketchName.value
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setStatus(data.error || "Draft save failed.", true);
+        setResult(data);
+        return;
+      }
+
+      persistSourceDraft();
+      setStatus(`Saved draft to GitHub at ${data.path}.`);
+      setResult(data);
     }
 
     function setStatus(message, isError = false) {
@@ -313,6 +367,18 @@
 
     statusBtn.addEventListener("click", () => {
       checkStatus().catch((error) => {
+        setStatus(error.message, true);
+      });
+    });
+
+    saveDraftBtn.addEventListener("click", () => {
+      saveDraft().catch((error) => {
+        setStatus(error.message, true);
+      });
+    });
+
+    loadDraftBtn.addEventListener("click", () => {
+      loadSavedDraft().catch((error) => {
         setStatus(error.message, true);
       });
     });

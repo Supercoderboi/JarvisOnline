@@ -11,7 +11,8 @@ const githubConfig = () => ({
   owner: required("GITHUB_OWNER"),
   repo: required("GITHUB_REPO"),
   workflowFile: process.env.GITHUB_WORKFLOW_FILE || "build-jarvis.yml",
-  ref: process.env.GITHUB_REF || "master"
+  ref: process.env.GITHUB_REF || "master",
+  draftRef: process.env.GITHUB_DRAFT_REF || process.env.GITHUB_REF || "master"
 });
 
 const githubHeaders = (token) => ({
