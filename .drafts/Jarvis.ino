@@ -13,11 +13,11 @@
 #include <Update.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
-
+//V9.4.26B
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-#define testversion "V9.4.26C"
+
 #define NOKIA_CLK 18
 #define NOKIA_DIN 19
 #define NOKIA_DC 21
@@ -130,6 +130,7 @@ bool timerRunning = false;
 
 bool otaStarted = false;
 bool otaServerRunning = false;
+bool bleSuspendedForOta = false;
 
 const char *serverIndex =
   "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
@@ -170,6 +171,9 @@ String fetchRemoteBuildId(String &binUrl, String &errorMessage);
 bool isRemoteBuildNewer(const String &remoteBuildId);
 void startManualOtaServer();
 void stopManualOtaServer();
+bool ensureWiFiForOta();
+void suspendBleForOta();
+void resumeBleAfterOta();
 
 void IRAM_ATTR readEncoder() {
   static uint8_t old_AB = 3;
@@ -214,13 +218,6 @@ void setup() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(BLACK);
-
-display.setCursor(0, 10);
-    display.print(testversion);
-display.display();
-
-delay(1000);
-display.clearDisplay();
 
   display.drawBitmap(18, 0, shield_bitmap, shield_width, shield_height, WHITE, BLACK);
   display.display();
@@ -1000,143 +997,233 @@ bool isRemoteBuildNewer(const String &remoteBuildId) {
   return remoteBuildId.length() > 0 && remoteBuildId != String(CURRENT_BUILD_ID);
 }
 
-String fetchRemoteBuildId(String &binUrl, String &errorMessage) {
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(15000);
-
-  if (!http.begin(client, UPDATE_MANIFEST_URL)) {
-    errorMessage = "begin() failed";
-    return "";
-  }
-
-  int httpCode = http.GET();
-  if (httpCode != HTTP_CODE_OK) {
-    errorMessage = httpStatusText(http, httpCode);
-    http.end();
-    return "";
-  }
-
-  String payload = http.getString();
-  http.end();
-
-  StaticJsonDocument<512> doc;
-  DeserializationError error = deserializeJson(doc, payload);
-  if (error) {
-    errorMessage = String("JSON ") + error.c_str();
-    return "";
-  }
-
-  binUrl = doc["bin_url"] | "";
-  String buildId = doc["build_id"] | "";
-  if (buildId.length() == 0 || binUrl.length() == 0) {
-    errorMessage = "Missing fields";
-    return "";
-  }
-
-  errorMessage = "";
-  return buildId;
+void suspendBleForOta() {
+  if (bleSuspendedForOta) return;
+  Serial.println("[OTA] Free heap before btStop(): " + String(ESP.getFreeHeap()));
+  btStop();
+  delay(500);
+  bleSuspendedForOta = true;
+  Serial.println("[OTA] Free heap after btStop(): " + String(ESP.getFreeHeap()));
 }
 
-bool performFirmwareUpdate(const String &binUrl) {
-  WiFiClientSecure client;
-  client.setInsecure();
+void resumeBleAfterOta() {
+  if (!bleSuspendedForOta) return;
+  btStart();
+  delay(300);
+  bleKeyboard.begin();
+  bleSuspendedForOta = false;
+  Serial.println("[OTA] BLE restarted after OTA exit");
+}
 
-  HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(20000);
-
-  showOtaMessage("Downloading...", "Firmware");
-
-  if (!http.begin(client, binUrl)) {
-    showOtaMessage("Update Error", "Bad BIN URL");
-    delay(2000);
-    return false;
-  }
-
-  int httpCode = http.GET();
-  if (httpCode != HTTP_CODE_OK) {
-    String status = httpStatusText(http, httpCode);
-    Serial.println("[OTA] Firmware GET failed: " + status);
-    showOtaMessage("Update Error", status);
-    http.end();
-    delay(2000);
-    return false;
-  }
-
-  int contentLength = http.getSize();
-  WiFiClient *stream = http.getStreamPtr();
-  Serial.println("[OTA] Current sketch size: " + String(ESP.getSketchSize()));
-  Serial.println("[OTA] Free sketch space: " + String(ESP.getFreeSketchSpace()));
-  Serial.println("[OTA] Incoming content length: " + String(contentLength));
-
-  if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
-    Update.printError(Serial);
-    showOtaMessage("Update Error", "Not enough", "space");
-    http.end();
-    delay(2000);
-    return false;
-  }
-
-  uint8_t buffer[1024];
-  int written = 0;
-  unsigned long lastDataAt = millis();
-
-  while (http.connected()) {
-    int availableSize = stream->available();
-    if (availableSize > 0) {
-      size_t chunkSize = (size_t)availableSize;
-      if (chunkSize > sizeof(buffer)) chunkSize = sizeof(buffer);
-
-      int readLen = stream->readBytes(buffer, chunkSize);
-      if (readLen > 0) {
-        if (Update.write(buffer, readLen) != (size_t)readLen) {
-          Update.abort();
-          http.end();
-          showOtaMessage("Update Error", "Write failed");
-          delay(2000);
-          return false;
-        }
-
-        written += readLen;
-        lastDataAt = millis();
-
-        if (contentLength > 0) {
-          int percent = (written * 100) / contentLength;
-          showOtaMessage("Updating...", String(percent) + "%");
-          if (written >= contentLength) break;
-        } else {
-          showOtaMessage("Updating...", String(written / 1024) + " KB");
-        }
-      }
+bool ensureWiFiForOta() {
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("[OTA] WiFi IP: " + WiFi.localIP().toString());
+    Serial.println("[OTA] WiFi Gateway: " + WiFi.gatewayIP().toString());
+    Serial.println("[OTA] WiFi DNS: " + WiFi.dnsIP().toString());
+    Serial.println("[OTA] WiFi RSSI: " + String(WiFi.RSSI()));
+    IPAddress hostIp;
+    if (WiFi.hostByName("jarvisupload.netlify.app", hostIp)) {
+      Serial.println("[OTA] Manifest host IP: " + hostIp.toString());
     } else {
-      if (!http.connected()) break;
-      if (millis() - lastDataAt > 15000) {
-        Update.abort();
+      Serial.println("[OTA] Manifest host lookup failed");
+    }
+    return true;
+  }
+
+  Serial.println("[OTA] WiFi disconnected, attempting reconnect");
+  WiFi.disconnect(false, false);
+  WiFi.reconnect();
+
+  unsigned long reconnectStarted = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - reconnectStarted < 10000) {
+    delay(250);
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[OTA] WiFi reconnect failed");
+    return false;
+  }
+
+  Serial.println("[OTA] WiFi reconnected");
+  Serial.println("[OTA] WiFi IP: " + WiFi.localIP().toString());
+  Serial.println("[OTA] WiFi Gateway: " + WiFi.gatewayIP().toString());
+  Serial.println("[OTA] WiFi DNS: " + WiFi.dnsIP().toString());
+  Serial.println("[OTA] WiFi RSSI: " + String(WiFi.RSSI()));
+  return true;
+}
+
+String fetchRemoteBuildId(String &binUrl, String &errorMessage) {
+  for (int attempt = 1; attempt <= 3; attempt++) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(15000);
+
+    Serial.println("[OTA] Manifest fetch attempt " + String(attempt) + "/3");
+
+    if (!http.begin(client, UPDATE_MANIFEST_URL)) {
+      errorMessage = "begin() failed";
+    } else {
+      int httpCode = http.GET();
+      if (httpCode == HTTP_CODE_OK) {
+        String payload = http.getString();
         http.end();
-        showOtaMessage("Update Error", "Download timeout");
-        delay(2000);
-        return false;
+
+        StaticJsonDocument<512> doc;
+        DeserializationError error = deserializeJson(doc, payload);
+        if (error) {
+          errorMessage = String("JSON ") + error.c_str();
+        } else {
+          binUrl = doc["bin_url"] | "";
+          String buildId = doc["build_id"] | "";
+          if (buildId.length() == 0 || binUrl.length() == 0) {
+            errorMessage = "Missing fields";
+          } else {
+            errorMessage = "";
+            return buildId;
+          }
+        }
+      } else {
+        errorMessage = httpStatusText(http, httpCode);
+        http.end();
       }
-      delay(1);
+    }
+
+    Serial.println("[OTA] Manifest attempt failed: " + errorMessage);
+    if (attempt < 3) {
+      delay(1500);
+      ensureWiFiForOta();
     }
   }
 
-  bool success = Update.end(true);
-  http.end();
+  return "";
+}
 
-  if (!success || !Update.isFinished()) {
+bool performFirmwareUpdate(const String &binUrl) {
+  for (int attempt = 1; attempt <= 3; attempt++) {
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(20000);
+
+    showOtaMessage("Downloading...", "Firmware", "Try " + String(attempt));
+    Serial.println("[OTA] Firmware download attempt " + String(attempt) + "/3");
+
+    if (!http.begin(client, binUrl)) {
+      Serial.println("[OTA] Bad BIN URL");
+      if (attempt < 3) {
+        delay(1500);
+        continue;
+      }
+      showOtaMessage("Update Error", "Bad BIN URL");
+      delay(2000);
+      return false;
+    }
+
+    int httpCode = http.GET();
+    if (httpCode != HTTP_CODE_OK) {
+      String status = httpStatusText(http, httpCode);
+      Serial.println("[OTA] Firmware GET failed: " + status);
+      http.end();
+      if (attempt < 3) {
+        delay(1500);
+        ensureWiFiForOta();
+        continue;
+      }
+      showOtaMessage("Update Error", status);
+      delay(2000);
+      return false;
+    }
+
+    int contentLength = http.getSize();
+    WiFiClient *stream = http.getStreamPtr();
+    Serial.println("[OTA] Current sketch size: " + String(ESP.getSketchSize()));
+    Serial.println("[OTA] Free sketch space: " + String(ESP.getFreeSketchSpace()));
+    Serial.println("[OTA] Incoming content length: " + String(contentLength));
+
+    if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
+      Update.printError(Serial);
+      http.end();
+      if (attempt < 3) {
+        delay(1500);
+        continue;
+      }
+      showOtaMessage("Update Error", "Not enough", "space");
+      delay(2000);
+      return false;
+    }
+
+    uint8_t buffer[1024];
+    int written = 0;
+    unsigned long lastDataAt = millis();
+    bool streamFailed = false;
+
+    while (http.connected()) {
+      int availableSize = stream->available();
+      if (availableSize > 0) {
+        size_t chunkSize = (size_t)availableSize;
+        if (chunkSize > sizeof(buffer)) chunkSize = sizeof(buffer);
+
+        int readLen = stream->readBytes(buffer, chunkSize);
+        if (readLen > 0) {
+          if (Update.write(buffer, readLen) != (size_t)readLen) {
+            Update.printError(Serial);
+            Update.abort();
+            http.end();
+            streamFailed = true;
+            break;
+          }
+
+          written += readLen;
+          lastDataAt = millis();
+
+          if (contentLength > 0) {
+            int percent = (written * 100) / contentLength;
+            showOtaMessage("Updating...", String(percent) + "%");
+            if (written >= contentLength) break;
+          } else {
+            showOtaMessage("Updating...", String(written / 1024) + " KB");
+          }
+        }
+      } else {
+        if (!http.connected()) break;
+        if (millis() - lastDataAt > 15000) {
+          Serial.println("[OTA] Download timeout");
+          Update.abort();
+          http.end();
+          streamFailed = true;
+          break;
+        }
+        delay(1);
+      }
+    }
+
+    bool success = !streamFailed && Update.end(true);
+    http.end();
+
+    if (success && Update.isFinished()) {
+      showOtaMessage("Update Done!", "Rebooting...");
+      delay(1500);
+      ESP.restart();
+      return true;
+    }
+
+    Serial.println("[OTA] Update attempt failed during finalize");
+    if (attempt < 3) {
+      delay(1500);
+      ensureWiFiForOta();
+      continue;
+    }
+
     showOtaMessage("Update Error", "Finalize fail");
     delay(2000);
     return false;
   }
 
-  showOtaMessage("Update Done!", "Rebooting...");
-  delay(1500);
-  ESP.restart();
-  return true;
+  return false;
 }
 
 void startManualOtaServer() {
@@ -1176,7 +1263,7 @@ void stopManualOtaServer() {
 }
 
 bool checkForGitHubUpdate() {
-  if (WiFi.status() != WL_CONNECTED) {
+  if (!ensureWiFiForOta()) {
     showOtaMessage("OTA Error", "No WiFi");
     Serial.println("[OTA] WiFi not connected");
     delay(2000);
@@ -1216,10 +1303,7 @@ bool checkForGitHubUpdate() {
 void runOtaMode() {
   if (!otaStarted) {
     otaStarted = true;
-    Serial.println("[OTA] Free heap before btStop(): " + String(ESP.getFreeHeap()));
-    btStop();
-    delay(500);
-    Serial.println("[OTA] Free heap after btStop(): " + String(ESP.getFreeHeap()));
+    suspendBleForOta();
 
     bool handledOnline = checkForGitHubUpdate();
     if (handledOnline) {
@@ -1241,6 +1325,7 @@ void runOtaMode() {
 
   if (longPress) {
     stopManualOtaServer();
+    resumeBleAfterOta();
     otaStarted = false;
     currentState = MENU;
   }
