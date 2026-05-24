@@ -16,6 +16,8 @@
 #define FW_BUILD_ID "dev"
 #endif
 
+#define VERSION "  1.3.1  "
+
 // --- Wi-Fi Configuration ---
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
@@ -132,7 +134,7 @@ void setup() {
     }
   }
 
-  updateDisplay("JARVIS", "Connecting", "to WiFi", "S.H.I.E.L.D");
+  updateDisplay("JARVIS", "Connecting", "to WiFi", "S.H.I.E.L.D", VERSION);
   if (connectToWiFi(20000)) {
     Serial.println("Connected! JARVIS hardware node online.");
     updateDisplay("JARVIS", "WiFi OK", "Awaiting", "voice");
