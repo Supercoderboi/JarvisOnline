@@ -122,7 +122,7 @@ void setup() {
     }
   }
 
-  updateDisplay("JARVIS", "Connecting", "to WiFi");
+  updateDisplay("JARVIS", "Connecting", "to WiFi", "S.H.I.E.L.D");
   if (connectToWiFi(20000)) {
     Serial.println("Connected! JARVIS hardware node online.");
     updateDisplay("JARVIS", "WiFi OK", "Awaiting", "voice");
