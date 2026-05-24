@@ -65,6 +65,15 @@ File recordingFile;
 bool otaModeActive = false;
 bool otaServerRunning = false;
 
+// --- Scroll State Variables ---
+#define MAX_SCROLL_LINES 20
+String scrollLines[MAX_SCROLL_LINES];
+int totalScrollLines = 0;
+int currentScrollIndex = 0;
+unsigned long lastScrollTime = 0;
+const unsigned long SCROLL_INTERVAL_MS = 2000;
+bool isScrollingActive = false;
+
 const char* CURRENT_BUILD_ID = FW_BUILD_ID;
 const char* UPDATE_MANIFEST_URLS[] = {
   "https://jarvisupload.netlify.app/firmware/manifest.json",
@@ -88,7 +97,8 @@ bool uploadRecordingFile();
 String sendChunkToServer(const uint8_t* chunkData, size_t chunkSize, bool isFinalChunk, bool resetSession);
 void initializeDisplay();
 void updateDisplay(const String& line1, const String& line2 = "", const String& line3 = "", const String& line4 = "", const String& line5 = "", const String& line6 = "");
-void showWrappedMessage(const String& title, const String& message);
+void startScrollingMessage(const String& title, const String& message);
+void handleDisplayScrolling();
 String readHttpResponseBody(WiFiClient& client);
 String extractJsonField(const String& json, const char* key);
 String decodeJsonString(const String& encoded);
@@ -148,6 +158,9 @@ void loop() {
     }
   }
 
+  // Handle display scrolling asynchronously without blocking sound detection
+  handleDisplayScrolling();
+
   if (digitalRead(DO_PIN) == HIGH) {
     lastSoundTime = millis();
 
@@ -188,6 +201,9 @@ bool beginRecording() {
   if (recordingFile) {
     recordingFile.close();
   }
+
+  // Interrupt scrolling visually when a new recording begins
+  isScrollingActive = false;
 
   SPIFFS.remove(RECORDING_FILE_PATH);
   recordingFile = SPIFFS.open(RECORDING_FILE_PATH, FILE_WRITE);
@@ -241,16 +257,20 @@ void finishRecordingAndUpload() {
   if (totalRecordedBytes == 0) {
     Serial.println("No audio captured. Skipping upload.");
     updateDisplay("No audio", "Nothing sent");
+    delay(1500);
+    updateDisplay("JARVIS", "Awaiting", "voice");
     return;
   }
 
   updateDisplay("Uploading...", String(totalRecordedBytes) + " bytes");
   if (!uploadRecordingFile()) {
     updateDisplay("Upload fail", "Chunk send", "stopped");
+    delay(1500);
+    updateDisplay("JARVIS", "Awaiting", "voice");
     return;
   }
 
-  updateDisplay("JARVIS", "Awaiting", "voice");
+  // REMOVED: Immediate override back to "JARVIS Awaiting voice" so text keeps scrolling.
 }
 
 bool uploadRecordingFile() {
@@ -301,19 +321,22 @@ bool uploadRecordingFile() {
   }
 
   if (isSoftwareUpdateCommand(transcription)) {
-    showWrappedMessage("Heard:", transcription);
+    updateDisplay("Heard:", transcription);
     delay(1500);
     openOtaMode();
     return true;
   }
 
+  // Construct a single combined message to scroll smoothly
+  String completeOutput = "";
   if (transcription.length() > 0) {
-    showWrappedMessage("Heard:", transcription);
-    delay(2000);
+    completeOutput += "Heard: " + transcription + " | ";
   }
+  completeOutput += "Jarvis: " + reply;
 
-  showWrappedMessage("Jarvis:", reply);
-  delay(3000);
+  // Initialize the non-blocking scroll view
+  startScrollingMessage("SYSTEM OUTPUT", completeOutput);
+  
   return true;
 }
 
@@ -404,14 +427,17 @@ void updateDisplay(const String& line1, const String& line2, const String& line3
   display.display();
 }
 
-void showWrappedMessage(const String& title, const String& message) {
+// Converts the message into separate formatted lines and resets the background timer variables
+void startScrollingMessage(const String& title, const String& message) {
   const int charsPerLine = 14;
-  String lines[6];
-  lines[0] = title;
-  int lineIndex = 1;
+  totalScrollLines = 0;
+  currentScrollIndex = 0;
+  
+  // Set the structural first line header
+  scrollLines[totalScrollLines++] = title;
+  
   int start = 0;
-
-  while (start < message.length() && lineIndex < 6) {
+  while (start < message.length() && totalScrollLines < MAX_SCROLL_LINES) {
     int remaining = message.length() - start;
     int take = remaining < charsPerLine ? remaining : charsPerLine;
 
@@ -426,17 +452,52 @@ void showWrappedMessage(const String& title, const String& message) {
       take = remaining < charsPerLine ? remaining : charsPerLine;
     }
 
-    lines[lineIndex] = message.substring(start, start + take);
-    lines[lineIndex].trim();
+    scrollLines[totalScrollLines] = message.substring(start, start + take);
+    scrollLines[totalScrollLines].trim();
     start += take;
 
     while (start < message.length() && message.charAt(start) == ' ') {
       start++;
     }
-    lineIndex++;
+    totalScrollLines++;
   }
 
-  updateDisplay(lines[0], lines[1], lines[2], lines[3], lines[4], lines[5]);
+  isScrollingActive = true;
+  lastScrollTime = millis();
+  
+  // Instantly draw initial parsed frame
+  handleDisplayScrolling();
+}
+
+// Non-blocking engine executed inside the main processing loop 
+void handleDisplayScrolling() {
+  if (!isScrollingActive) return;
+
+  // Check if 2 seconds have ticked by
+  if (millis() - lastScrollTime >= SCROLL_INTERVAL_MS) {
+    lastScrollTime = millis();
+    
+    // Scroll down by 1 line if there is unread text leftover
+    if (currentScrollIndex + 5 < totalScrollLines) {
+      currentScrollIndex++;
+    } else {
+      // Loop text back to the top window view frame when done
+      currentScrollIndex = 0;
+    }
+  }
+
+  // Dynamic composition array generation
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  
+  // Draw current snapshot window view layer (up to 6 lines max on PCD8544 display)
+  for (int i = 0; i < 6; i++) {
+    int lineIndex = currentScrollIndex + i;
+    if (lineIndex < totalScrollLines) {
+      display.println(scrollLines[lineIndex]);
+    }
+  }
+  display.display();
 }
 
 String readHttpResponseBody(WiFiClient& client) {
