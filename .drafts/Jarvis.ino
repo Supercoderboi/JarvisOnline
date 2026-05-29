@@ -6,29 +6,25 @@
 #include <Update.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
-#include <BleKeyboard.h>
+#include <NimBLEKeyboard.h>
 #include <Encoder.h>
 
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
 
-#define VERSION "1.3.3"
+#define VERSION "1.3.4-slim"
 
-// --- Wi-Fi Configuration ---
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
 
-// --- BLE Keyboard for Fire TV Stick ---
-BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
+NimBLEKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
 
-// --- OTA Buttons ---
 const int homeBtn = 32;
 const int backBtn = 33;
 unsigned long lastBtnCheck = 0;
 const int debounceDelay = 1000;
 
-// --- Joystick ---
 const int joyX = 34;
 const int joyY = 35;
 const int joySW = 25;
@@ -37,14 +33,12 @@ unsigned long lastJoyMove = 0;
 const int joyThreshold = 800;
 const int joyDebounce = 250;
 
-// --- Encoder ---
 const int encCLK = 26;
 const int encDT = 27;
 const int encSW = 14;
 Encoder myEnc(encCLK, encDT);
 long oldPosition = -999;
 
-// --- Nokia 5110 ---
 #define NOKIA_CLK 18
 #define NOKIA_DIN 19
 #define NOKIA_DC 21
@@ -52,12 +46,10 @@ long oldPosition = -999;
 #define NOKIA_RST 15
 Adafruit_PCD8544 display = Adafruit_PCD8544(NOKIA_CLK, NOKIA_DIN, NOKIA_DC, NOKIA_CE, NOKIA_RST);
 
-// --- WiFi retry ---
 unsigned long lastWiFiAttempt = 0;
 const unsigned long WIFI_RETRY_INTERVAL = 30000;
 bool wifiConnecting = false;
 
-// --- OTA ---
 const char* CURRENT_BUILD_ID = FW_BUILD_ID;
 const char* UPDATE_MANIFEST_URLS[] = {
   "https://jarvisupload.netlify.app/firmware/manifest.json",
@@ -70,8 +62,6 @@ bool connectToWiFi(unsigned long timeoutMs);
 bool checkForGitHubUpdate();
 
 void setup() {
-  Serial.begin(115200);
-
   pinMode(homeBtn, INPUT_PULLUP);
   pinMode(backBtn, INPUT_PULLUP);
   pinMode(joySW, INPUT_PULLUP);
@@ -98,7 +88,6 @@ void setup() {
 }
 
 void loop() {
-  // --- WiFi auto-retry ---
   if (WiFi.status()!= WL_CONNECTED && millis() - lastWiFiAttempt > WIFI_RETRY_INTERVAL) {
     if (!wifiConnecting) {
       wifiConnecting = true;
@@ -114,7 +103,6 @@ void loop() {
     lastWiFiAttempt = millis();
   }
 
-  // --- OTA Trigger: Home + Back ---
   bool homePressed = digitalRead(homeBtn) == LOW;
   bool backPressed = digitalRead(backBtn) == LOW;
   if(homePressed && backPressed && millis() - lastBtnCheck > debounceDelay) {
@@ -125,17 +113,15 @@ void loop() {
     return;
   }
 
-  // --- BLE Remote ---
   if(bleKeyboard.isConnected()) {
-    // Joystick D-Pad
     int xVal = analogRead(joyX);
     int yVal = analogRead(joyY);
     int currentDir = 0;
 
-    if (yVal < 4095 - joyThreshold) currentDir = 1; // Up
-    else if (yVal > joyThreshold) currentDir = 2; // Down
-    else if (xVal < 4095 - joyThreshold) currentDir = 3; // Left
-    else if (xVal > joyThreshold) currentDir = 4; // Right
+    if (yVal < 4095 - joyThreshold) currentDir = 1;
+    else if (yVal > joyThreshold) currentDir = 2;
+    else if (xVal < 4095 - joyThreshold) currentDir = 3;
+    else if (xVal > joyThreshold) currentDir = 4;
 
     if (currentDir!= 0 && currentDir!= lastJoyDir && millis() - lastJoyMove > joyDebounce) {
       switch(currentDir) {
@@ -148,14 +134,12 @@ void loop() {
     }
     lastJoyDir = currentDir;
 
-    // Joystick click = Select/OK
     if(digitalRead(joySW) == LOW) {
       bleKeyboard.write(KEY_RETURN);
       showMessage("BLE OK", "SELECT");
       delay(300);
     }
 
-    // Encoder = Up/Down
     long newPosition = myEnc.read() / 4;
     if (newPosition!= oldPosition) {
       if(newPosition > oldPosition) {
@@ -168,9 +152,8 @@ void loop() {
       oldPosition = newPosition;
     }
 
-    // Encoder click = Back
     if(digitalRead(encSW) == LOW) {
-      bleKeyboard.write(KEY_ESC); // Fire TV back
+      bleKeyboard.write(KEY_ESC);
       showMessage("BLE OK", "BACK");
       delay(300);
     }
@@ -207,7 +190,6 @@ bool connectToWiFi(unsigned long timeoutMs) {
   return WiFi.status() == WL_CONNECTED;
 }
 
-// --- OTA Functions ---
 bool ensureWiFiForOta() {
   if (WiFi.status() == WL_CONNECTED) return true;
   showMessage("WiFi lost", "Reconnecting");
@@ -241,7 +223,7 @@ String fetchRemoteBuildId(String& binUrl, String& errorMessage) {
     }
     String payload = http.getString();
     http.end();
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<384> doc;
     DeserializationError error = deserializeJson(doc, payload);
     if (error) {
       errorMessage = String("JSON ") + error.c_str();
@@ -285,7 +267,6 @@ bool performFirmwareUpdate(const String& binUrl) {
   int contentLength = http.getSize();
   WiFiClient* stream = http.getStreamPtr();
   if (!Update.begin(contentLength > 0? contentLength : UPDATE_SIZE_UNKNOWN)) {
-    Update.printError(Serial);
     http.end();
     showMessage("Update Error", "No space");
     delay(2000);
@@ -303,7 +284,6 @@ bool performFirmwareUpdate(const String& binUrl) {
       int readLen = stream->readBytes(buffer, chunkSize);
       if (readLen > 0) {
         if (Update.write(buffer, readLen)!= (size_t)readLen) {
-          Update.printError(Serial);
           Update.abort();
           streamFailed = true;
           break;
