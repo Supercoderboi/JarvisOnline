@@ -38,26 +38,15 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-          # Arduino Libraries
+          # Standard Arduino Registry Libraries
           arduino-cli lib install "ArduinoJson"
           arduino-cli lib install "Adafruit GFX Library"
           arduino-cli lib install "Adafruit PCD8544 Nokia 5110 LCD library"
           arduino-cli lib install "Encoder"
 
-          # BLE Libraries - Fixed paths for GitHub Actions
-          mkdir -p /home/runner/Arduino/libraries
-
-          # NimBLE must be installed first for ESP32-BLE-Keyboard
-          if [! -d /home/runner/Arduino/libraries/NimBLE-Arduino ]; then
-            git clone https://github.com/h2zero/NimBLE-Arduino.git /home/runner/Arduino/libraries/NimBLE-Arduino
-          fi
-
-          # ESP32-BLE-Keyboard
-          if [! -d /home/runner/Arduino/libraries/ESP32-BLE-Keyboard ]; then
-            git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git /home/runner/Arduino/libraries/ESP32-BLE-Keyboard
-          fi
-
-          arduino-cli lib update-index
+          # Git-based Libraries installed directly via arduino-cli (Fixes path and index indexing bugs)
+          arduino-cli lib install --git-url https://github.com/h2zero/NimBLE-Arduino.git
+          arduino-cli lib install --git-url https://github.com/T-vK/ESP32-BLE-Keyboard.git
 
       - name: Inject workflow source when provided
         shell: bash
