@@ -1,4 +1,4 @@
-ESP32
+name: Build Jarvis ESP32
 
 on:
   workflow_dispatch:
@@ -41,10 +41,8 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-          # Removed "DHT sensor library" - you don't use it
           arduino-cli lib install "ArduinoJson" "Adafruit GFX Library" "Adafruit PCD8544 Nokia 5110 LCD library" "Encoder"
 
-          # Swapped to NimBLE - saves ~80KB
           arduino-cli lib install --git-url https://github.com/h2zero/NimBLE-Arduino.git
           arduino-cli lib install --git-url https://github.com/T-vK/ESP32-NimBLE-Keyboard.git
 
@@ -109,7 +107,6 @@ jobs:
           cp "$BIN_PATH" release-assets/Jarvis.ino.bin
           echo "bin_path=release-assets/Jarvis.ino.bin" >> "$GITHUB_OUTPUT"
           echo "size=$(stat -c%s "$BIN_PATH")" >> "$GITHUB_OUTPUT"
-          echo "Binary size: $(stat -c%s "$BIN_PATH") bytes"
 
       - name: Write firmware manifest
         shell: bash
@@ -135,7 +132,7 @@ jobs:
         with:
           tag_name: latest-firmware
           name: Latest Firmware
-          body: Latest compiled Jarvis firmware from GitHub Actions. Size ${{ steps.firmware.outputs.size }} bytes
+          body: Latest compiled Jarvis firmware from GitHub Actions.
           prerelease: true
           files: ${{ steps.firmware.outputs.bin_path }}
           overwrite_files: true
