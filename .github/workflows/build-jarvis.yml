@@ -43,9 +43,12 @@ jobs:
 
           arduino-cli lib install "ArduinoJson" "Adafruit GFX Library" "Adafruit PCD8544 Nokia 5110 LCD library" "Encoder"
 
-          # Fixed URLs - NimBLE core + NimBLE Keyboard
+          # Install NimBLE core
           arduino-cli lib install --git-url https://github.com/h2zero/NimBLE-Arduino.git
-          arduino-cli lib install --git-url https://github.com/h2zero/ESP32-NimBLE-Keyboard.git
+
+          # Manual install NimBLE Keyboard - old repo is dead
+          mkdir -p ~/Arduino/libraries
+          git clone https://github.com/wakwak-koba/ESP32-NimBLE-Keyboard.git ~/Arduino/libraries/ESP32-NimBLE-Keyboard
 
       - name: Inject workflow source when provided
         shell: bash
@@ -92,6 +95,7 @@ jobs:
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
+            --library ~/Arduino/libraries \
             "$SKETCH_DIR/$SKETCH_NAME.ino" \
             --export-binaries
 
