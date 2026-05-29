@@ -1,3 +1,6 @@
+// --- FORCE NIMBLE STACK OVER CLASSIC BLUETOOTH (Saves ~400KB of Partition Space) ---
+#define USE_NIMBLE
+
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <HTTPClient.h>
@@ -6,7 +9,7 @@
 #include <Update.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
-#include <NimBLEKeyboard.h>
+#include <BleKeyboard.h> // Will automatically pick up NimBLE via the define above
 #include <Encoder.h>
 
 #ifndef FW_BUILD_ID
@@ -18,7 +21,8 @@
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
 
-NimBLEKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
+// Instance remains standard BleKeyboard
+BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
 
 const int homeBtn = 32;
 const int backBtn = 33;
@@ -88,13 +92,13 @@ void setup() {
 }
 
 void loop() {
-  if (WiFi.status()!= WL_CONNECTED && millis() - lastWiFiAttempt > WIFI_RETRY_INTERVAL) {
+  if (WiFi.status() != WL_CONNECTED && millis() - lastWiFiAttempt > WIFI_RETRY_INTERVAL) {
     if (!wifiConnecting) {
       wifiConnecting = true;
       showMessage("WiFi lost", "Retrying...");
     }
     if (connectToWiFi(10000)) {
-      showMessage("WiFi OK", bleKeyboard.isConnected()? "BLE OK" : "BLE Wait");
+      showMessage("WiFi OK", bleKeyboard.isConnected() ? "BLE OK" : "BLE Wait");
       wifiConnecting = false;
     } else {
       showMessage("WiFi FAIL", "Retrying 30s");
@@ -123,7 +127,7 @@ void loop() {
     else if (xVal < 4095 - joyThreshold) currentDir = 3;
     else if (xVal > joyThreshold) currentDir = 4;
 
-    if (currentDir!= 0 && currentDir!= lastJoyDir && millis() - lastJoyMove > joyDebounce) {
+    if (currentDir != 0 && currentDir != lastJoyDir && millis() - lastJoyMove > joyDebounce) {
       switch(currentDir) {
         case 1: bleKeyboard.write(KEY_UP_ARROW); showMessage("BLE OK", "UP"); break;
         case 2: bleKeyboard.write(KEY_DOWN_ARROW); showMessage("BLE OK", "DOWN"); break;
@@ -141,7 +145,7 @@ void loop() {
     }
 
     long newPosition = myEnc.read() / 4;
-    if (newPosition!= oldPosition) {
+    if (newPosition != oldPosition) {
       if(newPosition > oldPosition) {
         bleKeyboard.write(KEY_UP_ARROW);
         showMessage("BLE OK", "ENC UP");
@@ -184,7 +188,7 @@ bool connectToWiFi(unsigned long timeoutMs) {
   WiFi.disconnect();
   WiFi.begin(ssid, password);
   unsigned long startTime = millis();
-  while (WiFi.status()!= WL_CONNECTED && millis() - startTime < timeoutMs) {
+  while (WiFi.status() != WL_CONNECTED && millis() - startTime < timeoutMs) {
     delay(500);
   }
   return WiFi.status() == WL_CONNECTED;
@@ -196,7 +200,7 @@ bool ensureWiFiForOta() {
   WiFi.disconnect(false, false);
   WiFi.reconnect();
   unsigned long reconnectStarted = millis();
-  while (WiFi.status()!= WL_CONNECTED && millis() - reconnectStarted < 10000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - reconnectStarted < 10000) {
     delay(250);
   }
   return WiFi.status() == WL_CONNECTED;
@@ -216,7 +220,7 @@ String fetchRemoteBuildId(String& binUrl, String& errorMessage) {
       continue;
     }
     int httpCode = http.GET();
-    if (httpCode!= HTTP_CODE_OK) {
+    if (httpCode != HTTP_CODE_OK) {
       errorMessage = http.errorToString(httpCode);
       http.end();
       continue;
@@ -242,7 +246,7 @@ String fetchRemoteBuildId(String& binUrl, String& errorMessage) {
 }
 
 bool isRemoteBuildNewer(const String& remoteBuildId) {
-  return remoteBuildId.length() > 0 && remoteBuildId!= String(CURRENT_BUILD_ID);
+  return remoteBuildId.length() > 0 && remoteBuildId != String(CURRENT_BUILD_ID);
 }
 
 bool performFirmwareUpdate(const String& binUrl) {
@@ -258,7 +262,7 @@ bool performFirmwareUpdate(const String& binUrl) {
     return false;
   }
   int httpCode = http.GET();
-  if (httpCode!= HTTP_CODE_OK) {
+  if (httpCode != HTTP_CODE_OK) {
     showMessage("Update Error", http.errorToString(httpCode));
     http.end();
     delay(2000);
@@ -266,7 +270,7 @@ bool performFirmwareUpdate(const String& binUrl) {
   }
   int contentLength = http.getSize();
   WiFiClient* stream = http.getStreamPtr();
-  if (!Update.begin(contentLength > 0? contentLength : UPDATE_SIZE_UNKNOWN)) {
+  if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
     http.end();
     showMessage("Update Error", "No space");
     delay(2000);
@@ -283,7 +287,7 @@ bool performFirmwareUpdate(const String& binUrl) {
       if (chunkSize > sizeof(buffer)) chunkSize = sizeof(buffer);
       int readLen = stream->readBytes(buffer, chunkSize);
       if (readLen > 0) {
-        if (Update.write(buffer, readLen)!= (size_t)readLen) {
+        if (Update.write(buffer, readLen) != (size_t)readLen) {
           Update.abort();
           streamFailed = true;
           break;
@@ -308,7 +312,7 @@ bool performFirmwareUpdate(const String& binUrl) {
       delay(1);
     }
   }
-  bool success =!streamFailed && Update.end(true);
+  bool success = !streamFailed && Update.end(true);
   http.end();
   if (success && Update.isFinished()) {
     showMessage("Update Done!", "Rebooting...");
