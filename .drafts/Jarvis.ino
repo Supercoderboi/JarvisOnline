@@ -10,8 +10,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
 
-// This specific library variant maps directly to BleKeyboard.h but needs the correct context 
-#include <BleKeyboard.h> 
+// Match the explicit internal naming of the compiled workflow library fork
+#include <NimBleKeyboard.h>
 #include <Encoder.h>
 
 #ifndef FW_BUILD_ID
@@ -23,10 +23,8 @@
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
 
-// Keep your exact initialization name
+// Object instantiation remains mapping to BleKeyboard class
 BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
-
-
 
 const int homeBtn = 32;
 const int backBtn = 33;
