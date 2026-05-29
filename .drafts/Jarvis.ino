@@ -13,7 +13,7 @@
 #define FW_BUILD_ID "dev"
 #endif
 
-#define VERSION "1.3.2"
+#define VERSION "1.3.3"
 
 // --- Wi-Fi Configuration ---
 const char* ssid = "Ethria2.4";
@@ -291,7 +291,7 @@ bool performFirmwareUpdate(const String& binUrl) {
     delay(2000);
     return false;
   }
-  uint8_t buffer;
+  uint8_t buffer[128];
   int written = 0;
   unsigned long lastDataAt = millis();
   bool streamFailed = false;
