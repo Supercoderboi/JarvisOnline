@@ -1,4 +1,4 @@
-name: Build Jarvis ESP32
+ESP32
 
 on:
   workflow_dispatch:
@@ -41,12 +41,12 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-          # All your original libs + Encoder
-          arduino-cli lib install "ArduinoJson" "DHT sensor library" "Adafruit GFX Library" "Adafruit PCD8544 Nokia 5110 LCD library" "Encoder"
+          # Removed "DHT sensor library" - you don't use it
+          arduino-cli lib install "ArduinoJson" "Adafruit GFX Library" "Adafruit PCD8544 Nokia 5110 LCD library" "Encoder"
 
-          # BLE libs via arduino-cli instead of manual git clone
+          # Swapped to NimBLE - saves ~80KB
           arduino-cli lib install --git-url https://github.com/h2zero/NimBLE-Arduino.git
-          arduino-cli lib install --git-url https://github.com/T-vK/ESP32-BLE-Keyboard.git
+          arduino-cli lib install --git-url https://github.com/T-vK/ESP32-NimBLE-Keyboard.git
 
       - name: Inject workflow source when provided
         shell: bash
@@ -92,6 +92,7 @@ jobs:
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
+            --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
             "$SKETCH_DIR/$SKETCH_NAME.ino" \
             --export-binaries
 
@@ -107,6 +108,8 @@ jobs:
           fi
           cp "$BIN_PATH" release-assets/Jarvis.ino.bin
           echo "bin_path=release-assets/Jarvis.ino.bin" >> "$GITHUB_OUTPUT"
+          echo "size=$(stat -c%s "$BIN_PATH")" >> "$GITHUB_OUTPUT"
+          echo "Binary size: $(stat -c%s "$BIN_PATH") bytes"
 
       - name: Write firmware manifest
         shell: bash
@@ -115,7 +118,8 @@ jobs:
           cat > firmware/manifest.json <<EOF
           {
             "build_id": "${BUILD_ID}",
-            "bin_url": "https://github.com/Supercoderboi/JarvisOnline/releases/download/latest-firmware/Jarvis.ino.bin"
+            "bin_url": "https://github.com/Supercoderboi/JarvisOnline/releases/download/latest-firmware/Jarvis.ino.bin",
+            "size": ${{ steps.firmware.outputs.size }}
           }
           EOF
           cp firmware/manifest.json site/firmware/manifest.json
@@ -131,7 +135,7 @@ jobs:
         with:
           tag_name: latest-firmware
           name: Latest Firmware
-          body: Latest compiled Jarvis firmware from GitHub Actions.
+          body: Latest compiled Jarvis firmware from GitHub Actions. Size ${{ steps.firmware.outputs.size }} bytes
           prerelease: true
           files: ${{ steps.firmware.outputs.bin_path }}
           overwrite_files: true
