@@ -8,7 +8,7 @@ on:
         required: false
         type: string
       sketch_name:
-        description: Sketch folder and .ino base name
+        description: Sketch folder and.ino base name
         required: false
         default: Jarvis
         type: string
@@ -37,12 +37,20 @@ jobs:
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli lib install "ArduinoJson" "DHT sensor library" "Adafruit GFX Library" "Adafruit PCD8544 Nokia 5110 LCD library"
+
+          # Arduino Libraries
+          arduino-cli lib install "ArduinoJson"
+          arduino-cli lib install "DHT sensor library"
+          arduino-cli lib install "Adafruit GFX Library"
+          arduino-cli lib install "Adafruit PCD8544 Nokia 5110 LCD library"
+          arduino-cli lib install "Encoder"
+
+          # Manual git libraries
           mkdir -p ~/Arduino/libraries
-          if [ ! -d ~/Arduino/libraries/ESP32-BLE-Keyboard ]; then
+          if [! -d ~/Arduino/libraries/ESP32-BLE-Keyboard ]; then
             git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
           fi
-          if [ ! -d ~/Arduino/libraries/NimBLE-Arduino ]; then
+          if [! -d ~/Arduino/libraries/NimBLE-Arduino ]; then
             git clone https://github.com/h2zero/NimBLE-Arduino.git ~/Arduino/libraries/NimBLE-Arduino
           fi
 
@@ -100,7 +108,7 @@ jobs:
           mkdir -p release-assets firmware
           BIN_PATH=$(find "$SKETCH_DIR/build" -name "$SKETCH_NAME.ino.bin" | head -n 1)
           if [ -z "$BIN_PATH" ]; then
-            echo "No sketch firmware .bin found" >&2
+            echo "No sketch firmware.bin found" >&2
             exit 1
           fi
           cp "$BIN_PATH" release-assets/Jarvis.ino.bin
