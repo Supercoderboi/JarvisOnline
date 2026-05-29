@@ -41,17 +41,12 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-          # Standard Arduino Registry Libraries
-          arduino-cli lib install "ArduinoJson"
-          arduino-cli lib install "Adafruit GFX Library"
-          arduino-cli lib install "Adafruit PCD8544 Nokia 5110 LCD library"
-          arduino-cli lib install "Encoder"
+          # All your original libs + Encoder
+          arduino-cli lib install "ArduinoJson" "DHT sensor library" "Adafruit GFX Library" "Adafruit PCD8544 Nokia 5110 LCD library" "Encoder"
 
-          # Git-based Libraries - now allowed
+          # BLE libs via arduino-cli instead of manual git clone
           arduino-cli lib install --git-url https://github.com/h2zero/NimBLE-Arduino.git
           arduino-cli lib install --git-url https://github.com/T-vK/ESP32-BLE-Keyboard.git
-
-          arduino-cli lib update-index
 
       - name: Inject workflow source when provided
         shell: bash
