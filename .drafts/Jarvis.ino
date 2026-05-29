@@ -13,13 +13,13 @@
 #define FW_BUILD_ID "dev"
 #endif
 
-#define VERSION "1.3.1"
+#define VERSION "1.3.2"
 
 // --- Wi-Fi Configuration ---
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
 
-// --- BLE Keyboard ---
+// --- BLE Keyboard for Fire TV Stick ---
 BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
 
 // --- OTA Buttons ---
@@ -32,10 +32,10 @@ const int debounceDelay = 1000;
 const int joyX = 34;
 const int joyY = 35;
 const int joySW = 25;
-int lastJoyDir = 0; // 0=center, 1=up, 2=down, 3=left, 4=right
+int lastJoyDir = 0;
 unsigned long lastJoyMove = 0;
 const int joyThreshold = 800;
-const int joyDebounce = 300;
+const int joyDebounce = 250;
 
 // --- Encoder ---
 const int encCLK = 26;
@@ -55,6 +55,7 @@ Adafruit_PCD8544 display = Adafruit_PCD8544(NOKIA_CLK, NOKIA_DIN, NOKIA_DC, NOKI
 // --- WiFi retry ---
 unsigned long lastWiFiAttempt = 0;
 const unsigned long WIFI_RETRY_INTERVAL = 30000;
+bool wifiConnecting = false;
 
 // --- OTA ---
 const char* CURRENT_BUILD_ID = FW_BUILD_ID;
@@ -64,20 +65,18 @@ const char* UPDATE_MANIFEST_URLS[] = {
 };
 const size_t UPDATE_MANIFEST_URL_COUNT = sizeof(UPDATE_MANIFEST_URLS) / sizeof(UPDATE_MANIFEST_URLS[0]);
 
-void showOtaMessage(const String& line1, const String& line2 = "", const String& line3 = "", const String& line4 = "");
+void showMessage(const String& line1, const String& line2 = "", const String& line3 = "", const String& line4 = "");
 bool connectToWiFi(unsigned long timeoutMs);
 bool checkForGitHubUpdate();
 
 void setup() {
   Serial.begin(115200);
 
-  // Pins
   pinMode(homeBtn, INPUT_PULLUP);
   pinMode(backBtn, INPUT_PULLUP);
   pinMode(joySW, INPUT_PULLUP);
   pinMode(encSW, INPUT_PULLUP);
 
-  // Display
   display.begin();
   display.setContrast(58);
   display.clearDisplay();
@@ -85,17 +84,15 @@ void setup() {
   display.setTextColor(BLACK);
   display.display();
 
-  showOtaMessage("Jarvis Remote", "Booting...", VERSION);
+  showMessage("Jarvis Remote", VERSION, "Booting...");
 
-  // BLE
   bleKeyboard.begin();
-  showOtaMessage("BLE Ready", "Pair to", "Fire Stick");
+  delay(500);
 
-  // WiFi
   if (connectToWiFi(20000)) {
-    showOtaMessage("WiFi OK", "BLE Ready", "Hold H+B", "to update");
+    showMessage("WiFi OK", WiFi.localIP().toString(), "BLE Starting", "H+B = Update");
   } else {
-    showOtaMessage("WiFi FAIL", "BLE Ready", "Retrying 30s");
+    showMessage("WiFi FAIL", "BLE Starting", "Retrying 30s");
     lastWiFiAttempt = millis();
   }
 }
@@ -103,8 +100,17 @@ void setup() {
 void loop() {
   // --- WiFi auto-retry ---
   if (WiFi.status()!= WL_CONNECTED && millis() - lastWiFiAttempt > WIFI_RETRY_INTERVAL) {
-    showOtaMessage("WiFi lost", "Retrying...");
-    connectToWiFi(10000);
+    if (!wifiConnecting) {
+      wifiConnecting = true;
+      showMessage("WiFi lost", "Retrying...");
+    }
+    if (connectToWiFi(10000)) {
+      showMessage("WiFi OK", bleKeyboard.isConnected()? "BLE OK" : "BLE Wait");
+      wifiConnecting = false;
+    } else {
+      showMessage("WiFi FAIL", "Retrying 30s");
+      wifiConnecting = false;
+    }
     lastWiFiAttempt = millis();
   }
 
@@ -112,16 +118,16 @@ void loop() {
   bool homePressed = digitalRead(homeBtn) == LOW;
   bool backPressed = digitalRead(backBtn) == LOW;
   if(homePressed && backPressed && millis() - lastBtnCheck > debounceDelay) {
-    showOtaMessage("Update combo", "detected...");
+    showMessage("Update combo", "detected...");
     delay(500);
     checkForGitHubUpdate();
     lastBtnCheck = millis();
     return;
   }
 
-  // --- BLE Remote stuff only if connected ---
+  // --- BLE Remote ---
   if(bleKeyboard.isConnected()) {
-    // Joystick
+    // Joystick D-Pad
     int xVal = analogRead(joyX);
     int yVal = analogRead(joyY);
     int currentDir = 0;
@@ -133,51 +139,54 @@ void loop() {
 
     if (currentDir!= 0 && currentDir!= lastJoyDir && millis() - lastJoyMove > joyDebounce) {
       switch(currentDir) {
-        case 1: bleKeyboard.write(KEY_UP_ARROW); showOtaMessage("BLE OK", "UP"); break;
-        case 2: bleKeyboard.write(KEY_DOWN_ARROW); showOtaMessage("BLE OK", "DOWN"); break;
-        case 3: bleKeyboard.write(KEY_LEFT_ARROW); showOtaMessage("BLE OK", "LEFT"); break;
-        case 4: bleKeyboard.write(KEY_RIGHT_ARROW); showOtaMessage("BLE OK", "RIGHT"); break;
+        case 1: bleKeyboard.write(KEY_UP_ARROW); showMessage("BLE OK", "UP"); break;
+        case 2: bleKeyboard.write(KEY_DOWN_ARROW); showMessage("BLE OK", "DOWN"); break;
+        case 3: bleKeyboard.write(KEY_LEFT_ARROW); showMessage("BLE OK", "LEFT"); break;
+        case 4: bleKeyboard.write(KEY_RIGHT_ARROW); showMessage("BLE OK", "RIGHT"); break;
       }
       lastJoyMove = millis();
     }
     lastJoyDir = currentDir;
 
-    // Joystick click = Enter/Select
+    // Joystick click = Select/OK
     if(digitalRead(joySW) == LOW) {
       bleKeyboard.write(KEY_RETURN);
-      showOtaMessage("BLE OK", "SELECT");
+      showMessage("BLE OK", "SELECT");
       delay(300);
     }
 
-    // Encoder = Volume or Up/Down
+    // Encoder = Up/Down
     long newPosition = myEnc.read() / 4;
     if (newPosition!= oldPosition) {
       if(newPosition > oldPosition) {
-        bleKeyboard.write(KEY_UP_ARROW); // or KEY_MEDIA_VOLUME_UP
-        showOtaMessage("BLE OK", "ENC UP");
+        bleKeyboard.write(KEY_UP_ARROW);
+        showMessage("BLE OK", "ENC UP");
       } else {
-        bleKeyboard.write(KEY_DOWN_ARROW); // or KEY_MEDIA_VOLUME_DOWN
-        showOtaMessage("BLE OK", "ENC DOWN");
+        bleKeyboard.write(KEY_DOWN_ARROW);
+        showMessage("BLE OK", "ENC DOWN");
       }
       oldPosition = newPosition;
     }
 
     // Encoder click = Back
     if(digitalRead(encSW) == LOW) {
-      bleKeyboard.write(KEY_ESC); // Fire TV back button
-      showOtaMessage("BLE OK", "BACK");
+      bleKeyboard.write(KEY_ESC); // Fire TV back
+      showMessage("BLE OK", "BACK");
       delay(300);
     }
 
   } else {
-    showOtaMessage("BLE", "Not Paired", "Fire Stick", "Settings>BT");
-    delay(1000);
+    static unsigned long lastBleMsg = 0;
+    if (millis() - lastBleMsg > 2000) {
+      showMessage("BLE", "Not Paired", "Fire TV", "Settings>BT");
+      lastBleMsg = millis();
+    }
   }
 
   delay(10);
 }
 
-void showOtaMessage(const String& line1, const String& line2, const String& line3, const String& line4) {
+void showMessage(const String& line1, const String& line2, const String& line3, const String& line4) {
   display.clearDisplay();
   display.setCursor(0, 0);
   display.println(line1);
@@ -198,10 +207,10 @@ bool connectToWiFi(unsigned long timeoutMs) {
   return WiFi.status() == WL_CONNECTED;
 }
 
-// --- Keep all your OTA functions from before ---
+// --- OTA Functions ---
 bool ensureWiFiForOta() {
   if (WiFi.status() == WL_CONNECTED) return true;
-  showOtaMessage("WiFi lost", "Reconnecting");
+  showMessage("WiFi lost", "Reconnecting");
   WiFi.disconnect(false, false);
   WiFi.reconnect();
   unsigned long reconnectStarted = millis();
@@ -214,7 +223,7 @@ bool ensureWiFiForOta() {
 String fetchRemoteBuildId(String& binUrl, String& errorMessage) {
   for (size_t urlIndex = 0; urlIndex < UPDATE_MANIFEST_URL_COUNT; urlIndex++) {
     const char* manifestUrl = UPDATE_MANIFEST_URLS[urlIndex];
-    showOtaMessage("Checking", "manifest...", String(urlIndex + 1) + "/" + String(UPDATE_MANIFEST_URL_COUNT));
+    showMessage("Checking", "manifest...", String(urlIndex + 1) + "/" + String(UPDATE_MANIFEST_URL_COUNT));
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient http;
@@ -260,15 +269,15 @@ bool performFirmwareUpdate(const String& binUrl) {
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setTimeout(20000);
-  showOtaMessage("Downloading", "firmware...");
+  showMessage("Downloading", "firmware...");
   if (!http.begin(client, binUrl)) {
-    showOtaMessage("Update Error", "Bad BIN URL");
+    showMessage("Update Error", "Bad BIN URL");
     delay(2000);
     return false;
   }
   int httpCode = http.GET();
   if (httpCode!= HTTP_CODE_OK) {
-    showOtaMessage("Update Error", http.errorToString(httpCode));
+    showMessage("Update Error", http.errorToString(httpCode));
     http.end();
     delay(2000);
     return false;
@@ -278,11 +287,11 @@ bool performFirmwareUpdate(const String& binUrl) {
   if (!Update.begin(contentLength > 0? contentLength : UPDATE_SIZE_UNKNOWN)) {
     Update.printError(Serial);
     http.end();
-    showOtaMessage("Update Error", "No space");
+    showMessage("Update Error", "No space");
     delay(2000);
     return false;
   }
-  uint8_t buffer[1024];
+  uint8_t buffer;
   int written = 0;
   unsigned long lastDataAt = millis();
   bool streamFailed = false;
@@ -303,10 +312,10 @@ bool performFirmwareUpdate(const String& binUrl) {
         lastDataAt = millis();
         if (contentLength > 0) {
           int percent = (written * 100) / contentLength;
-          showOtaMessage("Updating...", String(percent) + "%", String(written/1024) + "KB");
+          showMessage("Updating...", String(percent) + "%", String(written/1024) + "KB");
           if (written >= contentLength) break;
         } else {
-          showOtaMessage("Updating...", String(written / 1024) + " KB");
+          showMessage("Updating...", String(written / 1024) + " KB");
         }
       }
     } else {
@@ -322,19 +331,19 @@ bool performFirmwareUpdate(const String& binUrl) {
   bool success =!streamFailed && Update.end(true);
   http.end();
   if (success && Update.isFinished()) {
-    showOtaMessage("Update Done!", "Rebooting...");
+    showMessage("Update Done!", "Rebooting...");
     delay(1500);
     ESP.restart();
     return true;
   }
-  showOtaMessage("Update Error", "Finalize fail");
+  showMessage("Update Error", "Finalize fail");
   delay(2000);
   return false;
 }
 
 bool checkForGitHubUpdate() {
   if (!ensureWiFiForOta()) {
-    showOtaMessage("OTA Error", "No WiFi", "Retrying 30s");
+    showMessage("OTA Error", "No WiFi", "Retrying 30s");
     lastWiFiAttempt = millis() - WIFI_RETRY_INTERVAL + 2000;
     return false;
   }
@@ -343,24 +352,24 @@ bool checkForGitHubUpdate() {
   String remoteBuildId = fetchRemoteBuildId(binUrl, manifestError);
   if (remoteBuildId.length() == 0 || binUrl.length() == 0) {
     if (manifestError.length() == 0) manifestError = "Bad manifest";
-    showOtaMessage("OTA Error", manifestError);
+    showMessage("OTA Error", manifestError);
     delay(2000);
-    showOtaMessage("Ready", WiFi.localIP().toString(), "Hold HOME+BACK");
+    showMessage("Ready", "H+B = Update");
     return false;
   }
-  showOtaMessage("Current:", CURRENT_BUILD_ID, "Remote:", remoteBuildId);
+  showMessage("Current:", CURRENT_BUILD_ID, "Remote:", remoteBuildId);
   delay(1500);
   if (!isRemoteBuildNewer(remoteBuildId)) {
-    showOtaMessage("Device", "Up To Date", CURRENT_BUILD_ID);
+    showMessage("Device", "Up To Date", CURRENT_BUILD_ID);
     delay(2000);
-    showOtaMessage("Ready", "BLE + WiFi OK");
+    showMessage("Ready", "H+B = Update");
     return false;
   }
-  showOtaMessage("Update Found", remoteBuildId);
+  showMessage("Update Found", remoteBuildId);
   delay(1200);
   bool result = performFirmwareUpdate(binUrl);
   if (!result) {
-    showOtaMessage("Update Failed", "Hold HOME+BACK", "to retry");
+    showMessage("Update Failed", "Hold H+B", "to retry");
   }
   return result;
 }
