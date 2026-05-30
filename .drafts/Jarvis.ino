@@ -6,7 +6,33 @@
 #include <Update.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
-#include <BleKeyboard.h> 
+
+#include <BleKeyboard.h>
+
+#ifndef KEY_UP_ARROW
+#define KEY_UP_ARROW    0xDA
+#endif
+
+#ifndef KEY_DOWN_ARROW
+#define KEY_DOWN_ARROW  0xD9
+#endif
+
+#ifndef KEY_LEFT_ARROW
+#define KEY_LEFT_ARROW  0xD8
+#endif
+
+#ifndef KEY_RIGHT_ARROW
+#define KEY_RIGHT_ARROW 0xD7
+#endif
+
+#ifndef KEY_RETURN
+#define KEY_RETURN      0xB0
+#endif
+
+#ifndef KEY_ESC
+#define KEY_ESC         0xB1
+#endif
+
 #include <Encoder.h>
 
 #ifndef FW_BUILD_ID
