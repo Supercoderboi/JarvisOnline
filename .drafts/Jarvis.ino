@@ -328,25 +328,21 @@ bool performFirmwareUpdate(const String& binUrl) {
   WiFiClientSecure downloadClient;
   downloadClient.setInsecure(); 
   
-  // CRITICAL SNI FIX: Parse out the new host domain name for the secure handshake
-  // e.g., Extracting "objects.githubusercontent.com" from the final redirect URL
-  if (finalDownloadUrl.startsWith("https://")) {
-    String remaining = finalDownloadUrl.substring(8);
-    int slashIndex = remaining.indexOf('/');
-    if (slashIndex > 0) {
-      String hostName = remaining.substring(0, slashIndex);
-      // Force the secure engine to expect the redirected host name
-      downloadClient.setPeerName(hostName.c_str());
-    }
-  }
+  // FIX: Expand the internal SSL cache memory allocation buffers.
+  // This prevents the ESP32 from dropping the connection (-1) when the redirect 
+  // destination server pushes massive TLS certificate keys during the handshake.
+  downloadClient.setBufferSize(512, 512); 
 
   HTTPClient http;
   http.setTimeout(30000); 
   http.setUserAgent("ESP32-OTA-Remote");
-  http.setReuse(false);   
+  
+  // Enforce strict internal redirection tracing down to the final data payload
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
   showMessage("Downloading", "firmware...");
   
+  // Pass the target string directly to the HTTP engine
   if (!http.begin(downloadClient, finalDownloadUrl)) {
     showMessage("Update Error", "Bad Target URL");
     delay(2000);
