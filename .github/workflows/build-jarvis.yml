@@ -131,8 +131,7 @@ jobs:
               if "NimBLEDevice" not in includes:
                   includes.append("NimBLEDevice")
               
-              # DEEP INJECTION: Force-define NimBLE usage flags at the very top of the sketch file 
-              # before any headers are loaded to trim down Bluetooth bloat.
+              # Force-define NimBLE usage flags at the top of the file to trim down Bluetooth bloat.
               prefix = "#define USE_NIMBLE\n#define FORCE_NIMBLE\n#include <NimBLEDevice.h>\n"
               if "USE_NIMBLE" not in content:
                   print("Injecting explicit NimBLE definitions to strip firmware bloat...")
@@ -159,10 +158,10 @@ jobs:
         shell: bash
         run: |
           echo "===== COMPILING SKETCH WITH OPTIMIZATIONS ====="
-          # Changed optimizations from -Os to -Oz (Aggressive Size Optimization)
+          # Fixed: Reverted optimization back to -Os supported by core 2.0.17 toolchain
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
-            --build-property "compiler.cpp.extra_flags=-Oz -ffunction-sections -fdata-sections -Wl,--gc-sections -DUSE_NIMBLE -DFORCE_NIMBLE -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
+            --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DUSE_NIMBLE -DFORCE_NIMBLE -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
             "$SKETCH_DIR/$SKETCH_NAME.ino" \
             --export-binaries
 
