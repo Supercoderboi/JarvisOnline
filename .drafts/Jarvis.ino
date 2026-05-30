@@ -1,3 +1,7 @@
+// 1. MUST BE AT THE VERY TOP to stop the hardware interrupt crash
+#define ENCODER_DO_NOT_USE_INTERRUPTS 
+#include <Encoder.h>
+
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <HTTPClient.h>
@@ -6,7 +10,6 @@
 #include <Update.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
-
 #include <BleKeyboard.h>
 
 #ifndef KEY_UP_ARROW
@@ -33,8 +36,6 @@
 #define KEY_ESC         0xB1
 #endif
 
-#include <Encoder.h>
-
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
@@ -44,7 +45,6 @@
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
 
-// Keep this as BleKeyboard. The global compiler flag handles the magic now!
 BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
 
 const int homeBtn = 32;
@@ -89,11 +89,13 @@ bool connectToWiFi(unsigned long timeoutMs);
 bool checkForGitHubUpdate();
 
 void setup() {
+  // Initialize basic GPIO pins first
   pinMode(homeBtn, INPUT_PULLUP);
   pinMode(backBtn, INPUT_PULLUP);
   pinMode(joySW, INPUT_PULLUP);
   pinMode(encSW, INPUT_PULLUP);
 
+  // Initialize display next so it's ready to output status messages
   display.begin();
   display.setContrast(58);
   display.clearDisplay();
@@ -102,10 +104,13 @@ void setup() {
   display.display();
 
   showMessage("Jarvis Remote", VERSION, "Booting...");
+  delay(1000); // Give the display and hardware pins a moment to settle down
 
+  // Start BLE Stack
   bleKeyboard.begin();
-  delay(500);
+  delay(1000); // Crucial delay to let BLE finish setting up its Core 0 threads before hitting Wi-Fi
 
+  // Now attempt Wi-Fi connection
   if (connectToWiFi(20000)) {
     showMessage("WiFi OK", WiFi.localIP().toString(), "BLE Starting", "H+B = Update");
   } else {
