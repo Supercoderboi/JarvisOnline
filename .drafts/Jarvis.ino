@@ -1,6 +1,3 @@
-// --- FORCE NIMBLE STACK OVER CLASSIC BLUETOOTH ---
-#define USE_NIMBLE
-
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <HTTPClient.h>
@@ -21,9 +18,8 @@
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
 
-// FIX: Changed 'BleKeyboard' to 'NimBleKeyboard' because of the wakwak-koba library wrapper layout
-// We keep the object variable name 'bleKeyboard' completely identical so the rest of your loop works perfectly!
-NimBleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
+// Keep this as BleKeyboard. The global compiler flag handles the magic now!
+BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
 
 const int homeBtn = 32;
 const int backBtn = 33;
