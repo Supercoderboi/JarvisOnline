@@ -296,7 +296,7 @@ bool isRemoteBuildNewer(const String& remoteBuildId) {
 bool performFirmwareUpdate(const String& binUrl) {
   String finalDownloadUrl = binUrl; // Fallback variable to hold redirect locations
   
-  // STEP 1: Handshake and resolve any potential redirects using an isolated scope
+  // STEP 1: Handshake and resolve any potential redirects safely
   {
     WiFiClientSecure initialClient;
     initialClient.setInsecure();
@@ -306,30 +306,34 @@ bool performFirmwareUpdate(const String& binUrl) {
     http.setTimeout(15000);
     http.setUserAgent("ESP32-OTA-Remote");
     
+    // CRITICAL FIX: Explicitly tell the ESP32 to store the Location header from the 302 redirect
+    const char* headerKeys[] = {"Location"};
+    http.collectHeaders(headerKeys, 1);
+    
     showMessage("Resolving URL...", "Checking route");
     
     if (http.begin(initialClient, binUrl)) {
       int httpCode = http.GET();
       
-      // If GitHub or Netlify hands back a redirect response code
-      if (httpCode == 301 || httpCode == 302 || httpCode == 307) {
-        String redirectedUrl = http.getLocation();
+      // Check for any form of standard server redirection response
+      if (httpCode == 301 || httpCode == 302 || httpCode == 303 || httpCode == 307) {
+        String redirectedUrl = http.header("Location"); // Fetch the saved location string
         if (redirectedUrl.length() > 0) {
-          finalDownloadUrl = redirectedUrl; // Grab the absolute download location
+          finalDownloadUrl = redirectedUrl; // Safely update our download target
         }
       }
-      http.end(); // Completely close this client socket block
+      http.end(); // Completely free this socket instance from memory
     }
   }
 
-  // STEP 2: Boot up a fresh client instance to fetch the binary asset file
+  // STEP 2: Initiate a clean download client pointing directly to the final host link
   WiFiClientSecure downloadClient;
   downloadClient.setInsecure(); 
   
   HTTPClient http;
-  http.setTimeout(30000); // 30-second window for large firmware chunk streams
+  http.setTimeout(30000); // 30-second window to handle heavy firmware chunks
   http.setUserAgent("ESP32-OTA-Remote");
-  http.setReuse(false);   // Force a fresh TCP slot connection
+  http.setReuse(false);   // Disables socket reuse to avoid data collisions
 
   showMessage("Downloading", "firmware...");
   
@@ -412,7 +416,6 @@ bool performFirmwareUpdate(const String& binUrl) {
   delay(2000);
   return false;
 }
-
 bool checkForGitHubUpdate() {
   if (bleInitialized) {
     showMessage("Stopping BLE...", "Freeing RAM");
