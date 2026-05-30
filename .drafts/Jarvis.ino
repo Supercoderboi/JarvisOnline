@@ -294,9 +294,9 @@ bool isRemoteBuildNewer(const String& remoteBuildId) {
 }
 
 bool performFirmwareUpdate(const String& binUrl) {
-  String finalDownloadUrl = binUrl; // Fallback variable to hold redirect locations
+  String finalDownloadUrl = binUrl; 
   
-  // STEP 1: Handshake and resolve any potential redirects safely
+  // STEP 1: Resolve the 302 redirect safely
   {
     WiFiClientSecure initialClient;
     initialClient.setInsecure();
@@ -306,7 +306,6 @@ bool performFirmwareUpdate(const String& binUrl) {
     http.setTimeout(15000);
     http.setUserAgent("ESP32-OTA-Remote");
     
-    // CRITICAL FIX: Explicitly tell the ESP32 to store the Location header from the 302 redirect
     const char* headerKeys[] = {"Location"};
     http.collectHeaders(headerKeys, 1);
     
@@ -315,25 +314,36 @@ bool performFirmwareUpdate(const String& binUrl) {
     if (http.begin(initialClient, binUrl)) {
       int httpCode = http.GET();
       
-      // Check for any form of standard server redirection response
       if (httpCode == 301 || httpCode == 302 || httpCode == 303 || httpCode == 307) {
-        String redirectedUrl = http.header("Location"); // Fetch the saved location string
+        String redirectedUrl = http.header("Location");
         if (redirectedUrl.length() > 0) {
-          finalDownloadUrl = redirectedUrl; // Safely update our download target
+          finalDownloadUrl = redirectedUrl;
         }
       }
-      http.end(); // Completely free this socket instance from memory
+      http.end();
     }
   }
 
-  // STEP 2: Initiate a clean download client pointing directly to the final host link
+  // STEP 2: Initiate a completely fresh download client
   WiFiClientSecure downloadClient;
   downloadClient.setInsecure(); 
   
+  // CRITICAL SNI FIX: Parse out the new host domain name for the secure handshake
+  // e.g., Extracting "objects.githubusercontent.com" from the final redirect URL
+  if (finalDownloadUrl.startsWith("https://")) {
+    String remaining = finalDownloadUrl.substring(8);
+    int slashIndex = remaining.indexOf('/');
+    if (slashIndex > 0) {
+      String hostName = remaining.substring(0, slashIndex);
+      // Force the secure engine to expect the redirected host name
+      downloadClient.setPeerName(hostName.c_str());
+    }
+  }
+
   HTTPClient http;
-  http.setTimeout(30000); // 30-second window to handle heavy firmware chunks
+  http.setTimeout(30000); 
   http.setUserAgent("ESP32-OTA-Remote");
-  http.setReuse(false);   // Disables socket reuse to avoid data collisions
+  http.setReuse(false);   
 
   showMessage("Downloading", "firmware...");
   
