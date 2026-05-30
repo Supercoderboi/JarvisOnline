@@ -10,8 +10,6 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
 #include <BleKeyboard.h>
-
-// Direct access to underlying NimBLE properties for a clean shutdown
 #include <NimBLEDevice.h>
 
 #ifndef KEY_UP_ARROW
@@ -48,6 +46,7 @@ const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
 
 BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
+bool bleInitialized = false; // Tracks our BLE state cleanly across versions
 
 const int homeBtn = 32;
 const int backBtn = 33;
@@ -107,6 +106,7 @@ void setup() {
   delay(1000);
 
   bleKeyboard.begin();
+  bleInitialized = true; 
   delay(1000);
 
   if (connectToWiFi(20000)) {
@@ -124,7 +124,7 @@ void loop() {
       showMessage("WiFi lost", "Retrying...");
     }
     if (connectToWiFi(10000)) {
-      showMessage("WiFi OK", bleKeyboard.isConnected() ? "BLE OK" : "BLE Wait");
+      showMessage("WiFi OK", (bleInitialized && bleKeyboard.isConnected()) ? "BLE OK" : "BLE Wait");
       wifiConnecting = false;
     } else {
       showMessage("WiFi FAIL", "Retrying 30s");
@@ -143,8 +143,7 @@ void loop() {
     return;
   }
 
-  // Check if BLE is still initialized before querying connection status
-  if(NimBLEDevice::getInitialized() && bleKeyboard.isConnected()) {
+  if(bleInitialized && bleKeyboard.isConnected()) {
     int xVal = analogRead(joyX);
     int yVal = analogRead(joyY);
     int currentDir = 0;
@@ -190,8 +189,7 @@ void loop() {
     }
 
   } else {
-    // Only show "Not Paired" if Bluetooth hasn't been purposefully shut down for update
-    if (NimBLEDevice::getInitialized()) {
+    if (bleInitialized) {
       static unsigned long lastBleMsg = 0;
       if (millis() - lastBleMsg > 2000) {
         showMessage("BLE", "Not Paired", "Fire TV", "Settings>BT");
@@ -278,7 +276,6 @@ String fetchRemoteBuildId(String& binUrl, String& errorMessage) {
 bool isRemoteBuildNewer(const String& remoteBuildId) {
   return remoteBuildId.length() > 0 && remoteBuildId != String(CURRENT_BUILD_ID);
 }
-
 bool performFirmwareUpdate(const String& binUrl) {
   WiFiClientSecure client;
   client.setInsecure();
@@ -298,14 +295,21 @@ bool performFirmwareUpdate(const String& binUrl) {
     delay(2000);
     return false;
   }
+  
   int contentLength = http.getSize();
   WiFiClient* stream = http.getStreamPtr();
-  if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
+  
+  // FIX: Instead of passing UPDATE_SIZE_UNKNOWN (which limits space to 1MB),
+  // we pass the exact partition maximum for min_spiffs (1,310,720 bytes)
+  size_t updateSize = (contentLength > 0) ? contentLength : 1310720;
+  
+  if (!Update.begin(updateSize)) {
     http.end();
     showMessage("Update Error", "No space");
     delay(2000);
     return false;
   }
+  
   uint8_t buffer[128];
   int written = 0;
   unsigned long lastDataAt = millis();
@@ -356,18 +360,18 @@ bool performFirmwareUpdate(const String& binUrl) {
 }
 
 bool checkForGitHubUpdate() {
-  // DISBAND BLUETOOTH HERE: Kill the Bluetooth stack cleanly to clear RAM heap space
-  if (NimBLEDevice::getInitialized()) {
+  if (bleInitialized) {
     showMessage("Stopping BLE...", "Freeing RAM");
     delay(500);
-    NimBLEDevice::deinit(true); // true clears assigned client/server memory heaps completely
+    NimBLEDevice::deinit(true); 
+    bleInitialized = false; // Safely track that BLE is dead
     delay(500);
   }
 
   if (!ensureWiFiForOta()) {
     showMessage("OTA Error", "No WiFi", "Rebooting remote");
     delay(2000);
-    ESP.restart(); // Restart if Wi-Fi connection breaks entirely so BLE comes back up
+    ESP.restart(); 
     return false;
   }
   
@@ -378,7 +382,7 @@ bool checkForGitHubUpdate() {
     if (manifestError.length() == 0) manifestError = "Bad manifest";
     showMessage("OTA Error", manifestError, "Rebooting...");
     delay(2000);
-    ESP.restart(); // Restart to restore BLE functionality
+    ESP.restart(); 
     return false;
   }
   
@@ -387,7 +391,7 @@ bool checkForGitHubUpdate() {
   if (!isRemoteBuildNewer(remoteBuildId)) {
     showMessage("Device", "Up To Date", "Rebooting...");
     delay(2000);
-    ESP.restart(); // Up to date, restart to boot back into normal BLE remote mode
+    ESP.restart(); 
     return false;
   }
   
