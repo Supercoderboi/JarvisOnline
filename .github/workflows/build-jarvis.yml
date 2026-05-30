@@ -34,7 +34,7 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
           sudo mv bin/arduino-cli /usr/local/bin/
           arduino-cli config init
-          arduino-cli config set 
+          arduino-cli config set library.enable_unsafe_install true
 
       - name: Setup ESP32 Core and libraries
         run: |
@@ -42,7 +42,7 @@ jobs:
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
           arduino-cli core install esp32:esp32@2.0.17 \
-            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino/esp32/gh-pages/package_esp32_index.json
 
           arduino-cli lib install "ArduinoJson"
           arduino-cli lib install "Adafruit GFX Library"
@@ -52,12 +52,22 @@ jobs:
           mkdir -p ~/Arduino/libraries
 
           git clone --depth 1 https://github.com/h2zero/NimBLE-Arduino.git \
-            ~/Arduino/libraries/NimBLE-Arduino
+            ~/Arduino/libraries/NimBLE-Arduino || true
 
           git clone --depth 1 https://github.com/T-vK/ESP32-BLE-Keyboard.git \
-            ~/Arduino/libraries/ESP32-BLE-Keyboard
+            ~/Arduino/libraries/ESP32-BLE-Keyboard || true
 
+          arduino-cli lib update-index
+
+          echo "===== INSTALLED LIBRARIES ====="
           arduino-cli lib list
+
+          echo "===== BLE HEADERS ====="
+          find ~/Arduino/libraries -name "BleKeyboard.h" -exec echo FOUND: {} \;
+
+          echo "===== LIBRARY TREE ====="
+          ls -la ~/Arduino/libraries
+
       - name: Inject workflow source when provided
         shell: bash
         env:
