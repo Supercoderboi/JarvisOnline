@@ -83,26 +83,70 @@ jobs:
           path.write_text(text, encoding="utf-8")
           PY
 
-      - name: Automatically Detect and Compile Code
+      - name: Parse and Install Missing Libraries
         shell: bash
         run: |
-          # 1. Update library index so arduino-cli knows what exists in the registry
           arduino-cli lib update-index
           
-          # 2. Dynamically build a project profile config file (sketch.yaml)
-          # This forces arduino-cli to auto-detect missing dependencies from the sketch file.
-          cat > "$SKETCH_DIR/sketch.yaml" <<EOF
-          profiles:
-            default:
-              fqbn: esp32:esp32:esp32:PartitionScheme=min_spiffs
-          default_profile: default
-          EOF
+          echo "===== DETECTING REQUIRED LIBRARIES ====="
+          python - <<'PY'
+          import re
+          import os
+          import subprocess
+          from pathlib import Path
 
-          # 3. Compile the sketch using the generated profile context
-          echo "===== COMPILING SKETCH WITH AUTO-LIBRARY DETECTION ====="
+          sketch_name = os.environ["SKETCH_NAME"]
+          sketch_dir = os.environ["SKETCH_DIR"]
+          sketch_path = Path(sketch_dir) / f"{sketch_name}.ino"
+
+          if not sketch_path.exists():
+              print(f"Sketch file not found at {sketch_path}")
+              exit(0)
+
+          content = sketch_path.read_text(encoding="utf-8")
+          # Regex to find all #include <LibraryName.h> or #include "LibraryName.h"
+          includes = re.findall(r'#include\s*[<"]([\w\s\-_\.]+)\.h[>"]', content)
+          
+          # Built-in ESP32 core headers to completely ignore
+          ignored_libs = {
+              "WiFi", "HTTPClient", "WiFiClientSecure", "SPI", "Wire", "FS", 
+              "SPIFFS", "SD", "Preferences", "Ticker", "Update", "WebServer", 
+              "DNSServer", "EEPROM", "BluetoothSerial", "BLEDevice"
+          }
+
+          # Mapping known file names to actual Arduino Library Manager names if they differ
+          lib_mapping = {
+              "ArduinoJson": "ArduinoJson",
+              "Adafruit_GFX": "Adafruit GFX Library",
+              "Adafruit_PCD8544": "Adafruit PCD8544 Nokia 5110 LCD library",
+              "Encoder": "Encoder",
+              "BleKeyboard": "ESP32 BLE Keyboard",
+              "NimBLEDevice": "NimBLE-Arduino"
+          }
+
+          installed = set()
+          for lib in includes:
+              if lib in ignored_libs:
+                  continue
+              
+              # Resolve the header to an installable library name
+              lib_name = lib_mapping.get(lib, lib)
+              
+              if lib_name not in installed:
+                  print(f"Installing missing dependency detected from code: {lib_name}")
+                  # Run installation command dynamically
+                  subprocess.run(["arduino-cli", "lib", "install", lib_name], check=False)
+                  installed.add(lib_name)
+          PY
+
+      - name: Compile Code
+        shell: bash
+        run: |
+          echo "===== COMPILING SKETCH ====="
           arduino-cli compile \
+            --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DUSE_NIMBLE -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
-            "$SKETCH_DIR" \
+            "$SKETCH_DIR/$SKETCH_NAME.ino" \
             --export-binaries
 
           echo "===== INSTALLED LIBRARIES ====="
