@@ -89,16 +89,20 @@ jobs:
           # 1. Update library index so arduino-cli knows what exists in the registry
           arduino-cli lib update-index
           
-          # 2. Automatically find and install missing libraries used in the code
-          echo "===== DETECTING AND INSTALLING LIBRARIES ====="
-          arduino-cli lib install --detect "$SKETCH_DIR/$SKETCH_NAME.ino"
-          
-          # 3. Compile the sketch
-          echo "===== COMPILING SKETCH ====="
+          # 2. Dynamically build a project profile config file (sketch.yaml)
+          # This forces arduino-cli to auto-detect missing dependencies from the sketch file.
+          cat > "$SKETCH_DIR/sketch.yaml" <<EOF
+          profiles:
+            default:
+              fqbn: esp32:esp32:esp32:PartitionScheme=min_spiffs
+          default_profile: default
+          EOF
+
+          # 3. Compile the sketch using the generated profile context
+          echo "===== COMPILING SKETCH WITH AUTO-LIBRARY DETECTION ====="
           arduino-cli compile \
-            --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DUSE_NIMBLE -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
-            "$SKETCH_DIR/$SKETCH_NAME.ino" \
+            "$SKETCH_DIR" \
             --export-binaries
 
           echo "===== INSTALLED LIBRARIES ====="
