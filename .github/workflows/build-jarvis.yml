@@ -106,8 +106,9 @@ jobs:
           content = sketch_path.read_text(encoding="utf-8")
           includes = re.findall(r'#include\s*[<"]([\w\s\-_\.]+)\.h[>"]', content)
           
+          # Added WiFiClient to core ignores
           ignored_libs = {
-              "WiFi", "HTTPClient", "WiFiClientSecure", "SPI", "Wire", "FS", 
+              "WiFi", "HTTPClient", "WiFiClient", "WiFiClientSecure", "SPI", "Wire", "FS", 
               "SPIFFS", "SD", "Preferences", "Ticker", "Update", "WebServer", 
               "DNSServer", "EEPROM", "BluetoothSerial", "BLEDevice", "BLEUtils",
               "BLEServer", "BLE2902"
@@ -128,6 +129,11 @@ jobs:
           }
 
           processed = set()
+          
+          # Deep scanning logic: If BleKeyboard is used, force NimBLE-Arduino installation as a dependency
+          if "BleKeyboard" in includes and "NimBLEDevice" not in includes:
+              includes.append("NimBLEDevice")
+
           for lib in includes:
               if lib in ignored_libs or lib in processed:
                   continue
