@@ -106,7 +106,6 @@ jobs:
           content = sketch_path.read_text(encoding="utf-8")
           includes = re.findall(r'#include\s*[<"]([\w\s\-_\.]+)\.h[>"]', content)
           
-          # Added WiFiClient to core ignores
           ignored_libs = {
               "WiFi", "HTTPClient", "WiFiClient", "WiFiClientSecure", "SPI", "Wire", "FS", 
               "SPIFFS", "SD", "Preferences", "Ticker", "Update", "WebServer", 
@@ -114,13 +113,11 @@ jobs:
               "BLEServer", "BLE2902"
           }
 
-          # Libraries that must be installed via direct Git URLs because they aren't on the standard registry
           git_mapping = {
               "BleKeyboard": "https://github.com/T-vK/ESP32-BLE-Keyboard.git",
               "NimBLEDevice": "https://github.com/h2zero/NimBLE-Arduino.git"
           }
 
-          # Mapping common header names to standard Arduino Library Manager names
           registry_mapping = {
               "ArduinoJson": "ArduinoJson",
               "Adafruit_GFX": "Adafruit GFX Library",
@@ -130,9 +127,16 @@ jobs:
 
           processed = set()
           
-          # Deep scanning logic: If BleKeyboard is used, force NimBLE-Arduino installation as a dependency
+          # Force NimBLE dependency if BleKeyboard is active
           if "BleKeyboard" in includes and "NimBLEDevice" not in includes:
               includes.append("NimBLEDevice")
+              
+              # FIX: Inject NimBLEDevice header into the source code dynamically before compilation
+              # so that BleKeyboard finds it when compiling.
+              if "#include <NimBLEDevice.h>" not in content:
+                  print("Injecting <NimBLEDevice.h> definition to fix compilation issues...")
+                  updated_content = "#include <NimBLEDevice.h>\n" + content
+                  sketch_path.write_text(updated_content, encoding="utf-8")
 
           for lib in includes:
               if lib in ignored_libs or lib in processed:
