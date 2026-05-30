@@ -1,4 +1,3 @@
-// 1. MUST BE AT THE VERY TOP to stop the hardware interrupt crash
 #define ENCODER_DO_NOT_USE_INTERRUPTS 
 #include <Encoder.h>
 
@@ -11,6 +10,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
 #include <BleKeyboard.h>
+
+// Direct access to underlying NimBLE properties for a clean shutdown
+#include <NimBLEDevice.h>
 
 #ifndef KEY_UP_ARROW
 #define KEY_UP_ARROW    0xDA
@@ -89,13 +91,11 @@ bool connectToWiFi(unsigned long timeoutMs);
 bool checkForGitHubUpdate();
 
 void setup() {
-  // Initialize basic GPIO pins first
   pinMode(homeBtn, INPUT_PULLUP);
   pinMode(backBtn, INPUT_PULLUP);
   pinMode(joySW, INPUT_PULLUP);
   pinMode(encSW, INPUT_PULLUP);
 
-  // Initialize display next so it's ready to output status messages
   display.begin();
   display.setContrast(58);
   display.clearDisplay();
@@ -104,13 +104,11 @@ void setup() {
   display.display();
 
   showMessage("Jarvis Remote", VERSION, "Booting...");
-  delay(1000); // Give the display and hardware pins a moment to settle down
+  delay(1000);
 
-  // Start BLE Stack
   bleKeyboard.begin();
-  delay(1000); // Crucial delay to let BLE finish setting up its Core 0 threads before hitting Wi-Fi
+  delay(1000);
 
-  // Now attempt Wi-Fi connection
   if (connectToWiFi(20000)) {
     showMessage("WiFi OK", WiFi.localIP().toString(), "BLE Starting", "H+B = Update");
   } else {
@@ -145,7 +143,8 @@ void loop() {
     return;
   }
 
-  if(bleKeyboard.isConnected()) {
+  // Check if BLE is still initialized before querying connection status
+  if(NimBLEDevice::getInitialized() && bleKeyboard.isConnected()) {
     int xVal = analogRead(joyX);
     int yVal = analogRead(joyY);
     int currentDir = 0;
@@ -191,10 +190,13 @@ void loop() {
     }
 
   } else {
-    static unsigned long lastBleMsg = 0;
-    if (millis() - lastBleMsg > 2000) {
-      showMessage("BLE", "Not Paired", "Fire TV", "Settings>BT");
-      lastBleMsg = millis();
+    // Only show "Not Paired" if Bluetooth hasn't been purposefully shut down for update
+    if (NimBLEDevice::getInitialized()) {
+      static unsigned long lastBleMsg = 0;
+      if (millis() - lastBleMsg > 2000) {
+        showMessage("BLE", "Not Paired", "Fire TV", "Settings>BT");
+        lastBleMsg = millis();
+      }
     }
   }
 
@@ -354,34 +356,48 @@ bool performFirmwareUpdate(const String& binUrl) {
 }
 
 bool checkForGitHubUpdate() {
+  // DISBAND BLUETOOTH HERE: Kill the Bluetooth stack cleanly to clear RAM heap space
+  if (NimBLEDevice::getInitialized()) {
+    showMessage("Stopping BLE...", "Freeing RAM");
+    delay(500);
+    NimBLEDevice::deinit(true); // true clears assigned client/server memory heaps completely
+    delay(500);
+  }
+
   if (!ensureWiFiForOta()) {
-    showMessage("OTA Error", "No WiFi", "Retrying 30s");
-    lastWiFiAttempt = millis() - WIFI_RETRY_INTERVAL + 2000;
+    showMessage("OTA Error", "No WiFi", "Rebooting remote");
+    delay(2000);
+    ESP.restart(); // Restart if Wi-Fi connection breaks entirely so BLE comes back up
     return false;
   }
+  
   String binUrl = "";
   String manifestError = "";
   String remoteBuildId = fetchRemoteBuildId(binUrl, manifestError);
   if (remoteBuildId.length() == 0 || binUrl.length() == 0) {
     if (manifestError.length() == 0) manifestError = "Bad manifest";
-    showMessage("OTA Error", manifestError);
+    showMessage("OTA Error", manifestError, "Rebooting...");
     delay(2000);
-    showMessage("Ready", "H+B = Update");
+    ESP.restart(); // Restart to restore BLE functionality
     return false;
   }
+  
   showMessage("Current:", CURRENT_BUILD_ID, "Remote:", remoteBuildId);
   delay(1500);
   if (!isRemoteBuildNewer(remoteBuildId)) {
-    showMessage("Device", "Up To Date", CURRENT_BUILD_ID);
+    showMessage("Device", "Up To Date", "Rebooting...");
     delay(2000);
-    showMessage("Ready", "H+B = Update");
+    ESP.restart(); // Up to date, restart to boot back into normal BLE remote mode
     return false;
   }
+  
   showMessage("Update Found", remoteBuildId);
   delay(1200);
   bool result = performFirmwareUpdate(binUrl);
   if (!result) {
-    showMessage("Update Failed", "Hold H+B", "to retry");
+    showMessage("Update Failed", "Rebooting device");
+    delay(2000);
+    ESP.restart();
   }
   return result;
 }
