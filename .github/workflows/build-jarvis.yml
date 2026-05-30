@@ -86,18 +86,22 @@ jobs:
       - name: Automatically Detect and Compile Code
         shell: bash
         run: |
-          # 1. Update library index so arduino-cli knows where to find missing libraries
+          # 1. Update library index so arduino-cli knows what exists in the registry
           arduino-cli lib update-index
           
-          # 2. Compile with the --install-libraries flag to auto-resolve imports
+          # 2. Automatically find and install missing libraries used in the code
+          echo "===== DETECTING AND INSTALLING LIBRARIES ====="
+          arduino-cli lib install --detect "$SKETCH_DIR/$SKETCH_NAME.ino"
+          
+          # 3. Compile the sketch
+          echo "===== COMPILING SKETCH ====="
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DUSE_NIMBLE -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
-            --install-libraries \
             "$SKETCH_DIR/$SKETCH_NAME.ino" \
             --export-binaries
 
-          echo "===== AUTO-INSTALLED LIBRARIES ====="
+          echo "===== INSTALLED LIBRARIES ====="
           arduino-cli lib list
 
       - name: Prepare firmware asset
