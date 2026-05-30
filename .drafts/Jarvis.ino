@@ -12,61 +12,46 @@
 #include <BleKeyboard.h>
 #include <NimBLEDevice.h>
 
-#ifndef KEY_UP_ARROW
-#define KEY_UP_ARROW    0xDA
-#endif
-
-#ifndef KEY_DOWN_ARROW
-#define KEY_DOWN_ARROW  0xD9
-#endif
-
-#ifndef KEY_LEFT_ARROW
-#define KEY_LEFT_ARROW  0xD8
-#endif
-
-#ifndef KEY_RIGHT_ARROW
-#define KEY_RIGHT_ARROW 0xD7
-#endif
-
-#ifndef KEY_RETURN
-#define KEY_RETURN      0xB0
-#endif
-
-#ifndef KEY_ESC
-#define KEY_ESC         0xB1
-#endif
-
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
 
-#define VERSION "1.3.4-slim"
+#define VERSION "1.4.0-hid"
 
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
 
+// Configure BleKeyboard to present itself clearly to the Fire TV
 BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
-bool bleInitialized = false; // Tracks our BLE state cleanly across versions
+bool bleInitialized = false;
 
+// Pin Definitions
 const int homeBtn = 32;
 const int backBtn = 33;
-unsigned long lastBtnCheck = 0;
-const int debounceDelay = 1000;
-
 const int joyX = 34;
 const int joyY = 35;
 const int joySW = 25;
-int lastJoyDir = 0;
-unsigned long lastJoyMove = 0;
-const int joyThreshold = 800;
-const int joyDebounce = 250;
-
 const int encCLK = 26;
 const int encDT = 27;
 const int encSW = 14;
+
+// Input State Tracking
+unsigned long lastBtnCheck = 0;
+const int debounceDelay = 300; // Snappier button response
+
+// Joystick Tuning
+// ESP32 ADC goes from 0 to 4095. Center is roughly 2048.
+const int JOY_CENTER = 2048;
+const int JOY_THRESHOLD = 1200; // Distance from center to trigger movement
+int lastJoyDir = 0;             // 0=Center, 1=UP, 2=DOWN, 3=LEFT, 4=RIGHT
+unsigned long lastJoyMove = 0;
+const int joyDebounce = 200;    // Delay between repeated directional swiping
+
+// Rotary Encoder Tuning
 Encoder myEnc(encCLK, encDT);
 long oldPosition = -999;
 
+// Nokia Display Setup
 #define NOKIA_CLK 18
 #define NOKIA_DIN 19
 #define NOKIA_DC 21
@@ -110,14 +95,15 @@ void setup() {
   delay(1000);
 
   if (connectToWiFi(20000)) {
-    showMessage("WiFi OK", WiFi.localIP().toString(), "BLE Starting", "H+B = Update");
+    showMessage("WiFi OK", WiFi.localIP().toString(), "BLE Ready", "H+B = Update");
   } else {
-    showMessage("WiFi FAIL", "BLE Starting", "Retrying 30s");
+    showMessage("WiFi FAIL", "BLE Ready", "Retrying 30s");
     lastWiFiAttempt = millis();
   }
 }
 
 void loop() {
+  // Handle Wi-Fi background monitoring reconnects
   if (WiFi.status() != WL_CONNECTED && millis() - lastWiFiAttempt > WIFI_RETRY_INTERVAL) {
     if (!wifiConnecting) {
       wifiConnecting = true;
@@ -133,66 +119,95 @@ void loop() {
     lastWiFiAttempt = millis();
   }
 
-  bool homePressed = digitalRead(homeBtn) == LOW;
-  bool backPressed = digitalRead(backBtn) == LOW;
-  if(homePressed && backPressed && millis() - lastBtnCheck > debounceDelay) {
-    showMessage("Update combo", "detected...");
-    delay(500);
-    checkForGitHubUpdate();
-    lastBtnCheck = millis();
-    return;
+  // Read raw Button States (LOW when pressed)
+  bool homePressed = (digitalRead(homeBtn) == LOW);
+  bool backPressed = (digitalRead(backBtn) == LOW);
+
+  // 1. CRITICAL: Check for OTA Update Combo Command First
+  if (homePressed && backPressed) {
+    if (millis() - lastBtnCheck > 1500) { // Require a clear deliberate hold
+      showMessage("Update combo", "detected...");
+      delay(500);
+      checkForGitHubUpdate();
+      lastBtnCheck = millis();
+      return;
+    }
   }
 
-  if(bleInitialized && bleKeyboard.isConnected()) {
+  // Process HID commands only if Bluetooth is connected to Fire TV
+  if (bleInitialized && bleKeyboard.isConnected()) {
+    
+    // 2. Individual Dedicated Home & Back Button Processing
+    if (homePressed && !backPressed && (millis() - lastBtnCheck > debounceDelay)) {
+      // Send standard HID Home key sequence to drop back to FireOS launcher dashboard
+      bleKeyboard.write(KEY_HOME); 
+      showMessage("Jarvis Remote", "HOME pressed");
+      lastBtnCheck = millis();
+    }
+    
+    if (backPressed && !homePressed && (millis() - lastBtnCheck > debounceDelay)) {
+      // Send standard HID Escape key layout which maps natively to "Back" on Android/FireOS
+      bleKeyboard.write(KEY_ESC); 
+      showMessage("Jarvis Remote", "BACK pressed");
+      lastBtnCheck = millis();
+    }
+
+    // 3. Robust Joystick Navigation Processing
     int xVal = analogRead(joyX);
     int yVal = analogRead(joyY);
-    int currentDir = 0;
+    int currentDir = 0; // 0=Center, 1=UP, 2=DOWN, 3=LEFT, 4=RIGHT
 
-    if (yVal < 4095 - joyThreshold) currentDir = 1;
-    else if (yVal > joyThreshold) currentDir = 2;
-    else if (xVal < 4095 - joyThreshold) currentDir = 3;
-    else if (xVal > joyThreshold) currentDir = 4;
+    // Determine direction based on deviation thresholds from the analog center point
+    if (yVal > JOY_CENTER + JOY_THRESHOLD)       currentDir = 2; // DOWN
+    else if (yVal < JOY_CENTER - JOY_THRESHOLD)  currentDir = 1; // UP
+    else if (xVal > JOY_CENTER + JOY_THRESHOLD)  currentDir = 4; // RIGHT
+    else if (xVal < JOY_CENTER - JOY_THRESHOLD)  currentDir = 3; // LEFT
 
-    if (currentDir != 0 && currentDir != lastJoyDir && millis() - lastJoyMove > joyDebounce) {
+    // Fire the command if moved to a new direction or if holding down past debounce timeout
+    if (currentDir != 0 && (currentDir != lastJoyDir || (millis() - lastJoyMove > joyDebounce))) {
       switch(currentDir) {
-        case 1: bleKeyboard.write(KEY_UP_ARROW); showMessage("BLE OK", "UP"); break;
-        case 2: bleKeyboard.write(KEY_DOWN_ARROW); showMessage("BLE OK", "DOWN"); break;
-        case 3: bleKeyboard.write(KEY_LEFT_ARROW); showMessage("BLE OK", "LEFT"); break;
-        case 4: bleKeyboard.write(KEY_RIGHT_ARROW); showMessage("BLE OK", "RIGHT"); break;
+        case 1: bleKeyboard.write(KEY_UP_ARROW);    showMessage("Navigating", "UP"); break;
+        case 2: bleKeyboard.write(KEY_DOWN_ARROW);  showMessage("Navigating", "DOWN"); break;
+        case 3: bleKeyboard.write(KEY_LEFT_ARROW);  showMessage("Navigating", "LEFT"); break;
+        case 4: bleKeyboard.write(KEY_RIGHT_ARROW); showMessage("Navigating", "RIGHT"); break;
       }
       lastJoyMove = millis();
     }
-    lastJoyDir = currentDir;
+    lastJoyDir = currentDir; // Updates state machinery to ensure snap response
 
-    if(digitalRead(joySW) == LOW) {
-      bleKeyboard.write(KEY_RETURN);
-      showMessage("BLE OK", "SELECT");
-      delay(300);
+    // 4. Joystick Click -> Natively Selects/Enters
+    if (digitalRead(joySW) == LOW && (millis() - lastBtnCheck > debounceDelay)) {
+      bleKeyboard.write(KEY_RETURN); // Select / OK item
+      showMessage("Selection", "SELECT / OK");
+      lastBtnCheck = millis();
     }
 
+    // 5. Rotary Encoder -> Precise TV System Volume Manipulation
     long newPosition = myEnc.read() / 4;
     if (newPosition != oldPosition) {
-      if(newPosition > oldPosition) {
-        bleKeyboard.write(KEY_UP_ARROW);
-        showMessage("BLE OK", "ENC UP");
+      if (newPosition > oldPosition) {
+        bleKeyboard.write(KEY_MEDIA_VOLUME_UP);
+        showMessage("Volume", "VOLUME UP");
       } else {
-        bleKeyboard.write(KEY_DOWN_ARROW);
-        showMessage("BLE OK", "ENC DOWN");
+        bleKeyboard.write(KEY_MEDIA_VOLUME_DOWN);
+        showMessage("Volume", "VOLUME DOWN");
       }
       oldPosition = newPosition;
     }
 
-    if(digitalRead(encSW) == LOW) {
-      bleKeyboard.write(KEY_ESC);
-      showMessage("BLE OK", "BACK");
-      delay(300);
+    // 6. Rotary Encoder Click Switch -> Universal Video Play/Pause Toggle
+    if (digitalRead(encSW) == LOW && (millis() - lastBtnCheck > debounceDelay)) {
+      bleKeyboard.write(KEY_MEDIA_PLAY_PAUSE);
+      showMessage("Media Control", "PLAY / PAUSE");
+      lastBtnCheck = millis();
     }
 
   } else {
+    // Bluetooth Connection status reporting ticker
     if (bleInitialized) {
       static unsigned long lastBleMsg = 0;
-      if (millis() - lastBleMsg > 2000) {
-        showMessage("BLE", "Not Paired", "Fire TV", "Settings>BT");
+      if (millis() - lastBleMsg > 3000) {
+        showMessage("BLE STATUS", "Not Connected", "Go to Fire TV", "Settings > BT");
         lastBleMsg = millis();
       }
     }
@@ -201,6 +216,7 @@ void loop() {
   delay(10);
 }
 
+// Display & OTA helper tasks remain unchanged below here
 void showMessage(const String& line1, const String& line2, const String& line3, const String& line4) {
   display.clearDisplay();
   display.setCursor(0, 0);
@@ -276,12 +292,12 @@ String fetchRemoteBuildId(String& binUrl, String& errorMessage) {
 bool isRemoteBuildNewer(const String& remoteBuildId) {
   return remoteBuildId.length() > 0 && remoteBuildId != String(CURRENT_BUILD_ID);
 }
+
 bool performFirmwareUpdate(const String& binUrl) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
   
-  // Re-enable strict redirect handling since your partition space is open!
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); 
   http.setTimeout(20000);
   
@@ -302,18 +318,11 @@ bool performFirmwareUpdate(const String& binUrl) {
   
   int contentLength = http.getSize();
   WiFiClient* stream = http.getStreamPtr();
-  
-  // THE PERFECT SIZE CORRECTION:
-  // If the server tells us the exact size (contentLength > 0), we use it.
-  // If it's hidden (-1), we use UPDATE_SIZE_UNKNOWN. Since your chip is now 
-  // physically partitioned to min_spiffs, UPDATE_SIZE_UNKNOWN will correctly
-  // target your expanded app1 slot without throwing a false boundary error!
   size_t updateSize = (contentLength > 0) ? contentLength : UPDATE_SIZE_UNKNOWN;
   
   if (!Update.begin(updateSize)) {
     http.end();
     showMessage("Update Error", "No space");
-    // Print internal error code to display for deep diagnostics if it still fails
     display.println("Err Code: " + String(Update.getError()));
     display.display();
     delay(4000);
@@ -378,7 +387,7 @@ bool checkForGitHubUpdate() {
     showMessage("Stopping BLE...", "Freeing RAM");
     delay(500);
     NimBLEDevice::deinit(true); 
-    bleInitialized = false; // Safely track that BLE is dead
+    bleInitialized = false; 
     delay(500);
   }
 
