@@ -710,22 +710,22 @@ bool performFirmwareUpdate(const String& binUrl) {
   client.setInsecure(); // Tell the client to skip looking up root certificates
 
   HTTPClient http;
-  // Let HTTPClient handle the entire redirect chain from raw.github to objects.github automatically
+  // Let HTTPClient handle the entire redirect chain automatically
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setTimeout(30000); // 30 seconds for handling secure handshakes and downloading chunks
   http.setUserAgent("ESP32-OTA-Remote");
 
-  showMessage("Downloading", "firmware...");
+  showOtaMessage("Downloading", "firmware...");
   
   if (!http.begin(client, binUrl)) {
-    showMessage("Update Error", "Bad Target URL");
+    showOtaMessage("Update Error", "Bad Target URL");
     delay(2000);
     return false;
   }
   
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
-    showMessage("Update Error", "HTTP Code: " + String(httpCode));
+    showOtaMessage("Update Error", "HTTP Code: " + String(httpCode));
     http.end();
     delay(3000);
     return false;
@@ -737,7 +737,7 @@ bool performFirmwareUpdate(const String& binUrl) {
   
   if (!Update.begin(updateSize)) {
     http.end();
-    showMessage("Update Error", "No space");
+    showOtaMessage("Update Error", "No space");
     delay(3000);
     return false;
   }
@@ -764,9 +764,9 @@ bool performFirmwareUpdate(const String& binUrl) {
         
         if (contentLength > 0) {
           int percent = (written * 100) / contentLength;
-          showMessage("Flashing...", String(percent) + "%", String(written / 1024) + "KB");
+          showOtaMessage("Flashing...", String(percent) + "%", String(written / 1024) + "KB");
         } else {
-          showMessage("Flashing...", String(written / 1024) + " KB");
+          showOtaMessage("Flashing...", String(written / 1024) + " KB");
         }
       }
     } else {
@@ -784,7 +784,7 @@ bool performFirmwareUpdate(const String& binUrl) {
   http.end();
   
   if (success && Update.isFinished()) {
-    showMessage("Update Done!", "Rebooting...");
+    showOtaMessage("Update Done!", "Rebooting...");
     delay(1500);
     ESP.restart();
     return true;
