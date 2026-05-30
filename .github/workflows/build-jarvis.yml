@@ -113,9 +113,10 @@ jobs:
               "BLEServer", "BLE2902"
           }
 
+          # FIX: Forced NimBLE to a stable 1.4.1 release tag to fix function definition mismatch errors
           git_mapping = {
               "BleKeyboard": "https://github.com/T-vK/ESP32-BLE-Keyboard.git",
-              "NimBLEDevice": "https://github.com/h2zero/NimBLE-Arduino.git"
+              "NimBLEDevice": "https://github.com/h2zero/NimBLE-Arduino.git#1.4.1"
           }
 
           registry_mapping = {
@@ -127,12 +128,9 @@ jobs:
 
           processed = set()
           
-          # Force NimBLE dependency if BleKeyboard is active
           if "BleKeyboard" in includes and "NimBLEDevice" not in includes:
               includes.append("NimBLEDevice")
               
-              # FIX: Inject NimBLEDevice header into the source code dynamically before compilation
-              # so that BleKeyboard finds it when compiling.
               if "#include <NimBLEDevice.h>" not in content:
                   print("Injecting <NimBLEDevice.h> definition to fix compilation issues...")
                   updated_content = "#include <NimBLEDevice.h>\n" + content
