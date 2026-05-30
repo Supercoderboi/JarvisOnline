@@ -294,25 +294,56 @@ bool isRemoteBuildNewer(const String& remoteBuildId) {
 }
 
 bool performFirmwareUpdate(const String& binUrl) {
-  WiFiClientSecure client;
-  client.setInsecure();
+  String finalDownloadUrl = binUrl; // Fallback variable to hold redirect locations
+  
+  // STEP 1: Handshake and resolve any potential redirects using an isolated scope
+  {
+    WiFiClientSecure initialClient;
+    initialClient.setInsecure();
+    
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(15000);
+    http.setUserAgent("ESP32-OTA-Remote");
+    
+    showMessage("Resolving URL...", "Checking route");
+    
+    if (http.begin(initialClient, binUrl)) {
+      int httpCode = http.GET();
+      
+      // If GitHub or Netlify hands back a redirect response code
+      if (httpCode == 301 || httpCode == 302 || httpCode == 307) {
+        String redirectedUrl = http.getLocation();
+        if (redirectedUrl.length() > 0) {
+          finalDownloadUrl = redirectedUrl; // Grab the absolute download location
+        }
+      }
+      http.end(); // Completely close this client socket block
+    }
+  }
+
+  // STEP 2: Boot up a fresh client instance to fetch the binary asset file
+  WiFiClientSecure downloadClient;
+  downloadClient.setInsecure(); 
+  
   HTTPClient http;
-  
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); 
-  http.setTimeout(20000);
-  
+  http.setTimeout(30000); // 30-second window for large firmware chunk streams
+  http.setUserAgent("ESP32-OTA-Remote");
+  http.setReuse(false);   // Force a fresh TCP slot connection
+
   showMessage("Downloading", "firmware...");
-  if (!http.begin(client, binUrl)) {
-    showMessage("Update Error", "Bad BIN URL");
+  
+  if (!http.begin(downloadClient, finalDownloadUrl)) {
+    showMessage("Update Error", "Bad Target URL");
     delay(2000);
     return false;
   }
   
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
-    showMessage("Update Error", http.errorToString(httpCode));
+    showMessage("Update Error", "HTTP Code: " + String(httpCode));
     http.end();
-    delay(2000);
+    delay(3000);
     return false;
   }
   
