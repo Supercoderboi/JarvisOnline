@@ -104,39 +104,44 @@ jobs:
               exit(0)
 
           content = sketch_path.read_text(encoding="utf-8")
-          # Regex to find all #include <LibraryName.h> or #include "LibraryName.h"
           includes = re.findall(r'#include\s*[<"]([\w\s\-_\.]+)\.h[>"]', content)
           
-          # Built-in ESP32 core headers to completely ignore
           ignored_libs = {
               "WiFi", "HTTPClient", "WiFiClientSecure", "SPI", "Wire", "FS", 
               "SPIFFS", "SD", "Preferences", "Ticker", "Update", "WebServer", 
-              "DNSServer", "EEPROM", "BluetoothSerial", "BLEDevice"
+              "DNSServer", "EEPROM", "BluetoothSerial", "BLEDevice", "BLEUtils",
+              "BLEServer", "BLE2902"
           }
 
-          # Mapping known file names to actual Arduino Library Manager names if they differ
-          lib_mapping = {
+          # Libraries that must be installed via direct Git URLs because they aren't on the standard registry
+          git_mapping = {
+              "BleKeyboard": "https://github.com/T-vK/ESP32-BLE-Keyboard.git",
+              "NimBLEDevice": "https://github.com/h2zero/NimBLE-Arduino.git"
+          }
+
+          # Mapping common header names to standard Arduino Library Manager names
+          registry_mapping = {
               "ArduinoJson": "ArduinoJson",
               "Adafruit_GFX": "Adafruit GFX Library",
               "Adafruit_PCD8544": "Adafruit PCD8544 Nokia 5110 LCD library",
-              "Encoder": "Encoder",
-              "BleKeyboard": "ESP32 BLE Keyboard",
-              "NimBLEDevice": "NimBLE-Arduino"
+              "Encoder": "Encoder"
           }
 
-          installed = set()
+          processed = set()
           for lib in includes:
-              if lib in ignored_libs:
+              if lib in ignored_libs or lib in processed:
                   continue
               
-              # Resolve the header to an installable library name
-              lib_name = lib_mapping.get(lib, lib)
-              
-              if lib_name not in installed:
-                  print(f"Installing missing dependency detected from code: {lib_name}")
-                  # Run installation command dynamically
+              if lib in git_mapping:
+                  git_url = git_mapping[lib]
+                  print(f"Installing missing git dependency: {lib} via {git_url}")
+                  subprocess.run(["arduino-cli", "lib", "install", "--git-url", git_url], check=False)
+              else:
+                  lib_name = registry_mapping.get(lib, lib)
+                  print(f"Installing missing registry dependency: {lib_name}")
                   subprocess.run(["arduino-cli", "lib", "install", lib_name], check=False)
-                  installed.add(lib_name)
+                  
+              processed.add(lib)
           PY
 
       - name: Compile Code
