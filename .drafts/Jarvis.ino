@@ -280,14 +280,18 @@ bool performFirmwareUpdate(const String& binUrl) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  
+  // Re-enable strict redirect handling since your partition space is open!
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); 
   http.setTimeout(20000);
+  
   showMessage("Downloading", "firmware...");
   if (!http.begin(client, binUrl)) {
     showMessage("Update Error", "Bad BIN URL");
     delay(2000);
     return false;
   }
+  
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
     showMessage("Update Error", http.errorToString(httpCode));
@@ -299,14 +303,20 @@ bool performFirmwareUpdate(const String& binUrl) {
   int contentLength = http.getSize();
   WiFiClient* stream = http.getStreamPtr();
   
-  // FIX: Instead of passing UPDATE_SIZE_UNKNOWN (which limits space to 1MB),
-  // we pass the exact partition maximum for min_spiffs (1,310,720 bytes)
-  size_t updateSize = (contentLength > 0) ? contentLength : 1310720;
+  // THE PERFECT SIZE CORRECTION:
+  // If the server tells us the exact size (contentLength > 0), we use it.
+  // If it's hidden (-1), we use UPDATE_SIZE_UNKNOWN. Since your chip is now 
+  // physically partitioned to min_spiffs, UPDATE_SIZE_UNKNOWN will correctly
+  // target your expanded app1 slot without throwing a false boundary error!
+  size_t updateSize = (contentLength > 0) ? contentLength : UPDATE_SIZE_UNKNOWN;
   
   if (!Update.begin(updateSize)) {
     http.end();
     showMessage("Update Error", "No space");
-    delay(2000);
+    // Print internal error code to display for deep diagnostics if it still fails
+    display.println("Err Code: " + String(Update.getError()));
+    display.display();
+    delay(4000);
     return false;
   }
   
@@ -314,6 +324,7 @@ bool performFirmwareUpdate(const String& binUrl) {
   int written = 0;
   unsigned long lastDataAt = millis();
   bool streamFailed = false;
+  
   while (http.connected()) {
     int availableSize = stream->available();
     if (availableSize > 0) {
@@ -328,10 +339,10 @@ bool performFirmwareUpdate(const String& binUrl) {
         }
         written += readLen;
         lastDataAt = millis();
+        
         if (contentLength > 0) {
           int percent = (written * 100) / contentLength;
           showMessage("Updating...", String(percent) + "%", String(written/1024) + "KB");
-          if (written >= contentLength) break;
         } else {
           showMessage("Updating...", String(written / 1024) + " KB");
         }
@@ -346,14 +357,17 @@ bool performFirmwareUpdate(const String& binUrl) {
       delay(1);
     }
   }
+  
   bool success = !streamFailed && Update.end(true);
   http.end();
+  
   if (success && Update.isFinished()) {
     showMessage("Update Done!", "Rebooting...");
     delay(1500);
     ESP.restart();
     return true;
   }
+  
   showMessage("Update Error", "Finalize fail");
   delay(2000);
   return false;
