@@ -36,7 +36,7 @@ jobs:
           arduino-cli config init
           arduino-cli config set library.enable_unsafe_install true
 
-         - name: Setup ESP32 Core and libraries
+      - name: Setup ESP32 Core and libraries
         run: |
           arduino-cli core update-index \
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
