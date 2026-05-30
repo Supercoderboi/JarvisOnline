@@ -88,13 +88,12 @@ jobs:
 
           path.write_text(text, encoding="utf-8")
           PY
-          
       - name: Compile code
         shell: bash
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
-            --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
+            --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DUSE_NIMBLE -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
             --libraries "$HOME/Arduino/libraries" \
             "$SKETCH_DIR/$SKETCH_NAME.ino" \
             --export-binaries
