@@ -54,6 +54,8 @@ const int joyDebounce = 200;
 Encoder myEnc(encCLK, encDT);
 long oldPosition = -999;
 
+// Map standard Android Consumer Home key for FireTV systems
+#define KEY_FIRE_HOME 0xEA
 // --- Nokia 5110 Display Layout ---
 #define NOKIA_CLK 18
 #define NOKIA_DIN 19
@@ -171,19 +173,22 @@ void loop() {
   // Handle standard Fire TV Input Processing loops
   if (bleInitialized && bleKeyboard.isConnected()) {
     
+    // --- HOME Button Processing (Fixed for Fire TV / Android) ---
     if (homePressed && !backPressed && (millis() - lastBtnCheck > debounceDelay)) {
-      bleKeyboard.write(KEY_HOME); 
+      const uint8_t homeKeyBuffer[2] = {0xEA, 0}; // 0xEA maps directly to Android's Consumer Home Key
+      bleKeyboard.write(homeKeyBuffer); 
       updateDisplay("FireTV HID", "HOME Triggered");
       lastBtnCheck = millis();
     }
     
+    // --- BACK Button Processing ---
     if (backPressed && !homePressed && (millis() - lastBtnCheck > debounceDelay)) {
       bleKeyboard.write(KEY_ESC); 
       updateDisplay("FireTV HID", "BACK Triggered");
       lastBtnCheck = millis();
     }
 
-    // Process Analog Navigation Joystick
+    // --- Process Analog Navigation Joystick ---
     int xVal = analogRead(joyX);
     int yVal = analogRead(joyY);
     int currentDir = 0; 
@@ -204,27 +209,29 @@ void loop() {
     }
     lastJoyDir = currentDir; 
 
-    // Joystick Center Click Selection Processing
+    // --- Joystick Center Click Selection Processing ---
     if (digitalRead(joySW) == LOW && (millis() - lastBtnCheck > debounceDelay)) {
       bleKeyboard.write(KEY_RETURN); 
       updateDisplay("Navigate", "SELECT / ENTER");
       lastBtnCheck = millis();
     }
 
-    // Rotary Encoder Volume Ticks
+    // --- Rotary Encoder Volume Ticks (Fixed Media Buffering) ---
     long newPosition = myEnc.read() / 4;
     if (newPosition != oldPosition) {
       if (newPosition > oldPosition) {
-        bleKeyboard.write(KEY_MEDIA_VOLUME_UP);
+        const uint8_t volUpBuffer[2] = {KEY_MEDIA_VOLUME_UP, 0};
+        bleKeyboard.write(volUpBuffer);
         updateDisplay("System Audio", "VOLUME UP");
       } else {
-        bleKeyboard.write(KEY_MEDIA_VOLUME_DOWN);
+        const uint8_t volDownBuffer[2] = {KEY_MEDIA_VOLUME_DOWN, 0};
+        bleKeyboard.write(volDownBuffer);
         updateDisplay("System Audio", "VOLUME DOWN");
       }
       oldPosition = newPosition;
     }
 
-    // Rotary Click - Play/Pause media mapping toggle
+    // --- Rotary Click - Play/Pause media mapping toggle ---
     if (digitalRead(encSW) == LOW && (millis() - lastBtnCheck > debounceDelay)) {
       bleKeyboard.write(KEY_MEDIA_PLAY_PAUSE);
       updateDisplay("Media Engine", "PLAY / PAUSE");
