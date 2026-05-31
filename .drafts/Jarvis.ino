@@ -34,8 +34,8 @@ bool bleInitialized = false;
 // --- Pin Layout ---
 const int homeBtn = 32;
 const int backBtn = 33;
-const int joyX = 34;
-const int joyY = 35;
+const int joyX = 34; // Note: Input only pin, ensure external pullup if hardware requires it
+const int joyY = 35; // Note: Input only pin, ensure external pullup if hardware requires it
 const int joySW = 25;
 const int encCLK = 26;
 const int encDT = 27;
@@ -54,8 +54,6 @@ const int joyDebounce = 200;
 Encoder myEnc(encCLK, encDT);
 long oldPosition = -999;
 
-// Map standard Android Consumer Home key for FireTV systems
-#define KEY_FIRE_HOME 0xEA
 // --- Nokia 5110 Display Layout ---
 #define NOKIA_CLK 18
 #define NOKIA_DIN 19
@@ -108,6 +106,10 @@ void setup() {
   pinMode(backBtn, INPUT_PULLUP);
   pinMode(joySW, INPUT_PULLUP);
   pinMode(encSW, INPUT_PULLUP);
+  
+  // Pins 34 and 35 are set as analog input channels
+  pinMode(joyX, INPUT);
+  pinMode(joyY, INPUT);
   analogSetWidth(12);
 
   initializeDisplay();
@@ -193,8 +195,8 @@ void loop() {
     int yVal = analogRead(joyY);
     int currentDir = 0; 
 
-    if (yVal > JOY_CENTER + JOY_THRESHOLD)       currentDir = 2; // DOWN
-    else if (yVal < JOY_CENTER - JOY_THRESHOLD)  currentDir = 1; // UP
+    if (yVal > JOY_CENTER + JOY_THRESHOLD)       currentDir = 1; // DOWN
+    else if (yVal < JOY_CENTER - JOY_THRESHOLD)  currentDir = 2; // UP
     else if (xVal > JOY_CENTER + JOY_THRESHOLD)  currentDir = 4; // RIGHT
     else if (xVal < JOY_CENTER - JOY_THRESHOLD)  currentDir = 3; // LEFT
 
