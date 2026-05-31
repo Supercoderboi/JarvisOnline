@@ -218,16 +218,14 @@ void loop() {
       lastBtnCheck = millis();
     }
 
-    // --- Rotary Encoder Volume Ticks (Fixed Media Buffering) ---
+    // --- Rotary Encoder Volume Ticks (Direct Media Array Passing) ---
     long newPosition = myEnc.read() / 4;
     if (newPosition != oldPosition) {
       if (newPosition > oldPosition) {
-        const uint8_t volUpBuffer[2] = {KEY_MEDIA_VOLUME_UP, 0};
-        bleKeyboard.write(volUpBuffer);
+        bleKeyboard.write(KEY_MEDIA_VOLUME_UP);
         updateDisplay("System Audio", "VOLUME UP");
       } else {
-        const uint8_t volDownBuffer[2] = {KEY_MEDIA_VOLUME_DOWN, 0};
-        bleKeyboard.write(volDownBuffer);
+        bleKeyboard.write(KEY_MEDIA_VOLUME_DOWN);
         updateDisplay("System Audio", "VOLUME DOWN");
       }
       oldPosition = newPosition;
