@@ -6,8 +6,6 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
-#include <FS.h>
-#include <SPIFFS.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
 #include <WebServer.h>
@@ -23,16 +21,11 @@
 #define FW_BUILD_ID "dev"
 #endif
 
-#define VERSION "2.1.0-fixed"
+#define VERSION "2.2.0-pure-remote"
 
 // --- Wi-Fi Configuration ---
 const char* ssid = "Ethria2.4";
 const char* password = "PalmDale007";
-
-// --- Server Configuration (From Voice Module) ---
-const char* host = "jarvisEp.pythonanywhere.com";
-const char* chunkServerPath = "/voice-command/chunk";
-const uint16_t serverPort = 80;
 
 // --- Bluetooth HID Configuration ---
 BleKeyboard bleKeyboard("Jarvis Remote", "ESP32", 100);
@@ -47,8 +40,6 @@ const int joySW = 25;
 const int encCLK = 26;
 const int encDT = 27;
 const int encSW = 14;
-const int AO_PIN = 34; // Shared/Legacy pin from voice code
-const int DO_PIN = 12;
 
 // --- Input Tuning & States ---
 unsigned long lastBtnCheck = 0;
@@ -74,21 +65,9 @@ Adafruit_PCD8544 display = Adafruit_PCD8544(NOKIA_CLK, NOKIA_DIN, NOKIA_DC, NOKI
 WebServer server(80);
 Preferences preferences;
 
-// --- Audio & Operational State Variables ---
-bool isRecording = false;
-unsigned long lastSoundTime = 0;
-unsigned long nextSampleTime = 0;
+// --- Operational State Variables ---
 bool otaModeActive = false;
 bool otaServerRunning = false;
-
-// --- Scroll Text Configurations ---
-#define MAX_SCROLL_LINES 20
-String scrollLines[MAX_SCROLL_LINES];
-int totalScrollLines = 0;
-int currentScrollIndex = 0;
-unsigned long lastScrollTime = 0;
-const unsigned long SCROLL_INTERVAL_MS = 2000;
-bool isScrollingActive = false;
 
 const char* CURRENT_BUILD_ID = FW_BUILD_ID;
 const char* UPDATE_MANIFEST_URLS[] = {
@@ -110,9 +89,6 @@ const char* serverIndex =
 bool connectToWiFi(unsigned long timeoutMs);
 void initializeDisplay();
 void updateDisplay(const String& line1, const String& line2 = "", const String& line3 = "", const String& line4 = "", const String& line5 = "", const String& line6 = "");
-void startScrollingMessage(const String& title, const String& message);
-void handleDisplayScrolling();
-void openOtaMode();
 void runOtaMode();
 void showOtaMessage(const String& line1, const String& line2 = "", const String& line3 = "");
 bool ensureWiFiForOta();
@@ -130,7 +106,6 @@ void setup() {
   pinMode(backBtn, INPUT_PULLUP);
   pinMode(joySW, INPUT_PULLUP);
   pinMode(encSW, INPUT_PULLUP);
-  pinMode(DO_PIN, INPUT);
   analogSetWidth(12);
 
   initializeDisplay();
@@ -141,7 +116,7 @@ void setup() {
   otaModeActive = preferences.getBool("ota_boot", false);
   
   if (otaModeActive) {
-    // Drop flag immediately so a bad loop won't brick the device sequence
+    // Drop flag immediately so a bad loop won't loop the boot state sequence
     preferences.putBool("ota_boot", false);
     preferences.end();
     
@@ -157,12 +132,7 @@ void setup() {
   }
   preferences.end();
 
-  // 2. Normal Boot: Mount File System and start BLE stack
-  if (!SPIFFS.begin(true)) {
-    Serial.println("SPIFFS mount failed.");
-    updateDisplay("JARVIS", "SPIFFS fail");
-  }
-
+  // 2. Normal Boot: Start BLE stack directly
   updateDisplay("JARVIS", "Initializing", "BLE Stack", "Version:", VERSION);
   bleKeyboard.begin();
   bleInitialized = true;
@@ -180,9 +150,6 @@ void loop() {
     delay(10);
     return;
   }
-
-  // Background display ticker
-  handleDisplayScrolling();
 
   bool homePressed = (digitalRead(homeBtn) == LOW);
   bool backPressed = (digitalRead(backBtn) == LOW);
@@ -293,58 +260,6 @@ void showOtaMessage(const String& line1, const String& line2, const String& line
   updateDisplay(line1, line2, line3);
 }
 
-void startScrollingMessage(const String& title, const String& message) {
-  const int charsPerLine = 14;
-  totalScrollLines = 0;
-  currentScrollIndex = 0;
-  scrollLines[totalScrollLines++] = title;
-  
-  int start = 0;
-  while (start < message.length() && totalScrollLines < MAX_SCROLL_LINES) {
-    int remaining = message.length() - start;
-    int take = remaining < charsPerLine ? remaining : charsPerLine;
-
-    if (start + take < message.length()) {
-      int split = message.lastIndexOf(' ', start + take - 1);
-      if (split >= start) take = split - start;
-    }
-    if (take <= 0) take = remaining < charsPerLine ? remaining : charsPerLine;
-
-    scrollLines[totalScrollLines] = message.substring(start, start + take);
-    scrollLines[totalScrollLines].trim();
-    start += take;
-
-    while (start < message.length() && message.charAt(start) == ' ') start++;
-    totalScrollLines++;
-  }
-  isScrollingActive = true;
-  lastScrollTime = millis();
-  handleDisplayScrolling();
-}
-
-void handleDisplayScrolling() {
-  if (!isScrollingActive) return;
-
-  if (millis() - lastScrollTime >= SCROLL_INTERVAL_MS) {
-    lastScrollTime = millis();
-    if (currentScrollIndex + 5 < totalScrollLines) {
-      currentScrollIndex++;
-    } else {
-      currentScrollIndex = 0;
-    }
-  }
-
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  for (int i = 0; i < 6; i++) {
-    int lineIndex = currentScrollIndex + i;
-    if (lineIndex < totalScrollLines) {
-      display.println(scrollLines[lineIndex]);
-    }
-  }
-  display.display();
-}
-
 // --- Wi-Fi Connections ---
 bool connectToWiFi(unsigned long timeoutMs) {
   if (WiFi.status() == WL_CONNECTED) return true;
@@ -367,7 +282,7 @@ bool ensureWiFiForOta() {
   return WiFi.status() == WL_CONNECTED;
 }
 
-// --- Clean, Core 2.0.17 Compiling Firmware Updater Setup ---
+// --- Core 2.0.17 Compiling Firmware Updater Setup ---
 void runOtaMode() {
   bool updateApplied = checkForGitHubUpdate();
   if (!updateApplied) {
