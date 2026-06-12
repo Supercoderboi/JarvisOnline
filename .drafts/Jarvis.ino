@@ -8,7 +8,6 @@
 #include <Update.h>
 #include <Preferences.h>
 #include <BluetoothA2DPSink.h>
-#include <BluetoothAVRCP.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
@@ -34,7 +33,6 @@ Preferences prefs;
 
 // --- Bluetooth ---
 BluetoothA2DPSink a2dp_sink;
-BluetoothAVRCP::AVRCP avrcp;
 bool btConnected = false;
 String btDeviceName = "None";
 
@@ -113,9 +111,9 @@ void setup() {
 
   pinMode(JOY_BTN, INPUT_PULLUP);
 
-  // Bluetooth callbacks
+  // Bluetooth callbacks - AVRCP handled by a2dp_sink
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
-  avrcp.set_on_callback(onAVRCPCommand);
+  a2dp_sink.set_avrcp_controller_callback(onAVRCPCommand);
 
   drawMenu();
 }
@@ -244,7 +242,7 @@ void handleJoystick() {
       menuIndex = 0;
       drawMenu();
     } else {
-      avrcp.play_pause();
+      a2dp_sink.play_pause();
       updateBTDisplay();
     }
     lastBtnPress = millis();
@@ -253,22 +251,22 @@ void handleJoystick() {
 
   // Y = Volume
   if (yVal < 1000) {
-    avrcp.volume_up();
+    a2dp_sink.volume_up();
     updateBTDisplay();
     delay(150);
   } else if (yVal > 3000) {
-    avrcp.volume_down();
+    a2dp_sink.volume_down();
     updateBTDisplay();
     delay(150);
   }
 
   // X = Next/Prev
   if (xVal < 1000) {
-    avrcp.previous();
+    a2dp_sink.previous();
     updateBTDisplay();
     delay(250);
   } else if (xVal > 3000) {
-    avrcp.next();
+    a2dp_sink.next();
     updateBTDisplay();
     delay(250);
   }
@@ -291,7 +289,7 @@ void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
 }
 
 void onAVRCPCommand(esp_avrc_ptg_t cmd, uint8_t key_state) {
-  Serial.printf("AVRCP: %d\n", cmd);
+  Serial.printf("AVRCP RX: %d\n", cmd);
 }
 
 // --- WiFi NVS ---
