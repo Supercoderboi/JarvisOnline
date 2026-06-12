@@ -115,15 +115,15 @@ jobs:
 
           git_mapping = {
               "BleKeyboard": "https://github.com/T-vK/ESP32-BLE-Keyboard.git",
-              "NimBLEDevice": "https://github.com/h2zero/NimBLE-Arduino.git#1.4.1"
+              "NimBLEDevice": "https://github.com/h2zero/NimBLE-Arduino.git#1.4.1",
+              "BluetoothA2DPSink": "https://github.com/pschatzmann/ESP32-A2DP.git",
+              "BluetoothAVRCP": "https://github.com/pschatzmann/ESP32-A2DP.git"
           }
 
           registry_mapping = {
               "ArduinoJson": "ArduinoJson",
               "Adafruit_GFX": "Adafruit GFX Library",
               "Adafruit_PCD8544": "Adafruit PCD8544 Nokia 5110 LCD library",
-              "BluetoothA2DPSink": "ESP32 A2DP",
-              "BluetoothAVRCP": "ESP32 A2DP",
               "Encoder": "Encoder"
           }
 
