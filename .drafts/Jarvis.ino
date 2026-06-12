@@ -14,7 +14,7 @@
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-#define VERSION "1.5.0"
+#define VERSION "1.5.1"
 
 // --- Joystick pins ---
 #define JOY_X 34
@@ -54,6 +54,7 @@ unsigned long lastJoyRead = 0;
 unsigned long lastBtnPress = 0;
 int lastBtnState = HIGH;
 unsigned long btnDownTime = 0;
+bool isPaused = true; // track play/pause state
 
 // --- OTA stuff from mic code ---
 const char* CURRENT_BUILD_ID = FW_BUILD_ID;
@@ -90,7 +91,6 @@ void handleMenu();
 void handleJoystick();
 void updateBTDisplay();
 void onBTConnected(esp_a2d_connection_state_t state, void* ptr);
-void onAVRCPCommand(esp_avrc_ptg_t cmd, uint8_t key_state);
 void openOtaMode();
 void runOtaMode();
 void showOtaMessage(const String& l1, const String& l2="", const String& l3="");
@@ -111,9 +111,8 @@ void setup() {
 
   pinMode(JOY_BTN, INPUT_PULLUP);
 
-  // Bluetooth callbacks - AVRCP handled by a2dp_sink
+  // Bluetooth callbacks - v1.8.11 only has connection callback
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
-  a2dp_sink.set_avrcp_controller_callback(onAVRCPCommand);
 
   drawMenu();
 }
@@ -234,7 +233,7 @@ void handleJoystick() {
   int yVal = analogRead(JOY_Y);
   int btnVal = digitalRead(JOY_BTN);
 
-  // Button = Play/Pause, Long press 1s = back to menu
+  // Button = Play/Pause toggle, Long press 1s = back to menu
   if (btnVal == LOW && lastBtnState == HIGH && millis() - lastBtnPress > 300) {
     if (millis() - btnDownTime > 1000) {
       a2dp_sink.end();
@@ -242,7 +241,13 @@ void handleJoystick() {
       menuIndex = 0;
       drawMenu();
     } else {
-      a2dp_sink.play_pause();
+      if (isPaused) {
+        a2dp_sink.play();
+        isPaused = false;
+      } else {
+        a2dp_sink.pause();
+        isPaused = true;
+      }
       updateBTDisplay();
     }
     lastBtnPress = millis();
@@ -275,7 +280,7 @@ void handleJoystick() {
 void updateBTDisplay() {
   String l1 = btConnected? "BT Connected" : "Pairing...";
   String l2 = btDeviceName.substring(0,14);
-  String l3 = "Btn: Play/Pause";
+  String l3 = isPaused? "Btn: Play" : "Btn: Pause";
   String l4 = "Up/Down: Vol";
   String l5 = "L/R: Next/Prev";
   String l6 = "Hold 1s: Back";
@@ -284,12 +289,9 @@ void updateBTDisplay() {
 
 void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   btConnected = (state == ESP_A2D_CONNECTION_STATE_CONNECTED);
-  btDeviceName = btConnected? a2dp_sink.get_peer_device_name() : "None";
+  btDeviceName = btConnected? a2dp_sink.get_peer_name() : "None";
+  if (btConnected) isPaused = false;
   if (menuState == MENU_BT) updateBTDisplay();
-}
-
-void onAVRCPCommand(esp_avrc_ptg_t cmd, uint8_t key_state) {
-  Serial.printf("AVRCP RX: %d\n", cmd);
 }
 
 // --- WiFi NVS ---
