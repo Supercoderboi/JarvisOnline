@@ -108,6 +108,8 @@ void setup() {
 
   initializeDisplay();
   updateDisplay("BT REMOTE", "Booting...", VERSION);
+updateDisplay(“Ethan”,”Akshaj”);
+delay(5000);
 
   pinMode(JOY_BTN, INPUT_PULLUP);
 
