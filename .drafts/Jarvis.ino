@@ -107,8 +107,7 @@ void setup() {
   Serial.begin(115200);
 
   initializeDisplay();
-  updateDisplay("BT REMOTE", "Booting...", VERSION);
-  updateDisplay(“Ethan","Akshaj","aaaa");
+  updateDisplay("ethan", "Booting...", VERSION);
   delay(5000);
 
   pinMode(JOY_BTN, INPUT_PULLUP);
