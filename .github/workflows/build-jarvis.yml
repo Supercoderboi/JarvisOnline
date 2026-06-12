@@ -8,7 +8,7 @@ on:
         required: false
         type: string
       sketch_name:
-        description: Sketch folder and .ino base name
+        description: Sketch folder and.ino base name
         required: false
         default: Jarvis
         type: string
@@ -42,7 +42,7 @@ jobs:
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
           arduino-cli core install esp32:esp32@2.0.17 \
-            --additional-urls https://raw.githubusercontent.com/espressif/arduino/esp32/gh-pages/package_esp32_index.json
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
       - name: Inject workflow source when provided
         shell: bash
@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           arduino-cli lib update-index
-          
+
           echo "===== DETECTING REQUIRED LIBRARIES ====="
           python - <<'PY'
           import re
@@ -105,10 +105,10 @@ jobs:
 
           content = sketch_path.read_text(encoding="utf-8")
           includes = re.findall(r'#include\s*[<"]([\w\s\-_\.]+)\.h[>"]', content)
-          
+
           ignored_libs = {
-              "WiFi", "HTTPClient", "WiFiClient", "WiFiClientSecure", "SPI", "Wire", "FS", 
-              "SPIFFS", "SD", "Preferences", "Ticker", "Update", "WebServer", 
+              "WiFi", "HTTPClient", "WiFiClient", "WiFiClientSecure", "SPI", "Wire", "FS",
+              "SPIFFS", "SD", "Preferences", "Ticker", "Update", "WebServer",
               "DNSServer", "EEPROM", "BluetoothSerial", "BLEDevice", "BLEUtils",
               "BLEServer", "BLE2902"
           }
@@ -122,16 +122,17 @@ jobs:
               "ArduinoJson": "ArduinoJson",
               "Adafruit_GFX": "Adafruit GFX Library",
               "Adafruit_PCD8544": "Adafruit PCD8544 Nokia 5110 LCD library",
+              "BluetoothA2DPSink": "ESP32 A2DP",
+              "BluetoothAVRCP": "ESP32 A2DP",
               "Encoder": "Encoder"
           }
 
           processed = set()
-          
+
           if "BleKeyboard" in includes:
               if "NimBLEDevice" not in includes:
                   includes.append("NimBLEDevice")
-              
-              # Force-define NimBLE usage flags at the top of the file to trim down Bluetooth bloat.
+
               prefix = "#define USE_NIMBLE\n#define FORCE_NIMBLE\n#include <NimBLEDevice.h>\n"
               if "USE_NIMBLE" not in content:
                   print("Injecting explicit NimBLE definitions to strip firmware bloat...")
@@ -141,7 +142,7 @@ jobs:
           for lib in includes:
               if lib in ignored_libs or lib in processed:
                   continue
-              
+
               if lib in git_mapping:
                   git_url = git_mapping[lib]
                   print(f"Installing missing git dependency: {lib} via {git_url}")
@@ -150,7 +151,7 @@ jobs:
                   lib_name = registry_mapping.get(lib, lib)
                   print(f"Installing missing registry dependency: {lib_name}")
                   subprocess.run(["arduino-cli", "lib", "install", lib_name], check=False)
-                  
+
               processed.add(lib)
           PY
 
@@ -158,7 +159,6 @@ jobs:
         shell: bash
         run: |
           echo "===== COMPILING SKETCH WITH OPTIMIZATIONS ====="
-          # Fixed: Reverted optimization back to -Os supported by core 2.0.17 toolchain
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DUSE_NIMBLE -DFORCE_NIMBLE -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
