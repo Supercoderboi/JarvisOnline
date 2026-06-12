@@ -107,8 +107,7 @@ void setup() {
   Serial.begin(115200);
 
   initializeDisplay();
-  updateDisplay("ethan", "Booting...", VERSION);
-  delay(5000);
+  updateDisplay("BT REMOTE", "Booting...", VERSION);
 
   pinMode(JOY_BTN, INPUT_PULLUP);
 
@@ -282,7 +281,7 @@ void updateBTDisplay() {
   String l1 = btConnected? "BT Connected" : "Pairing...";
   String l2 = btDeviceName.substring(0,14);
   String l3 = isPaused? "Btn: Play" : "Btn: Pause";
-  String l4 = "Up/Downb: Vol";
+  String l4 = "Up/Down: Vol";
   String l5 = "L/R: Next/Prev";
   String l6 = "Hold 1s: Back";
   updateDisplay(l1, l2, l3, l4, l5, l6);
