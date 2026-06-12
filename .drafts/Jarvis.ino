@@ -7,8 +7,8 @@
 #include <WebServer.h>
 #include <Update.h>
 #include <Preferences.h>
-#include "BluetoothA2DPSink.h"
-#include "BluetoothAVRCP.h"
+#include <BluetoothA2DPSink.h>
+#include <BluetoothAVRCP.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
@@ -17,7 +17,7 @@
 #endif
 #define VERSION "1.5.0"
 
-// --- Joystick pins from you ---
+// --- Joystick pins ---
 #define JOY_X 34
 #define JOY_Y 35
 #define JOY_BTN 33 // Add 10k pullup to 3.3V
@@ -34,7 +34,7 @@ Preferences prefs;
 
 // --- Bluetooth ---
 BluetoothA2DPSink a2dp_sink;
-BluetoothAVRCP avrcp;
+BluetoothAVRCP::AVRCP avrcp;
 bool btConnected = false;
 String btDeviceName = "None";
 
@@ -57,7 +57,7 @@ unsigned long lastBtnPress = 0;
 int lastBtnState = HIGH;
 unsigned long btnDownTime = 0;
 
-// --- OTA stuff from your mic code ---
+// --- OTA stuff from mic code ---
 const char* CURRENT_BUILD_ID = FW_BUILD_ID;
 const char* UPDATE_MANIFEST_URLS[] = {
   "https://jarvisupload.netlify.app/firmware/manifest.json",
@@ -111,7 +111,7 @@ void setup() {
   initializeDisplay();
   updateDisplay("BT REMOTE", "Booting...", VERSION);
 
-  pinMode(JOY_BTN, INPUT);
+  pinMode(JOY_BTN, INPUT_PULLUP);
 
   // Bluetooth callbacks
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
@@ -203,7 +203,7 @@ void handleMenu() {
     if (menuIndex == 0) { // BT Remote
       menuState = MENU_BT;
       String s,p;
-      if (loadWiFiCreds(s,p)) connectToWiFi(5000); // WiFi for OTA only
+      if (loadWiFiCreds(s,p)) connectToWiFi(5000);
       a2dp_sink.start("ESP32-Remote");
       updateDisplay("BT Remote", "Pair: ESP32-Remote");
     }
@@ -264,7 +264,7 @@ void handleJoystick() {
 
   // X = Next/Prev
   if (xVal < 1000) {
-    avrcp.prev();
+    avrcp.previous();
     updateBTDisplay();
     delay(250);
   } else if (xVal > 3000) {
@@ -356,7 +356,7 @@ void updateDisplay(const String& l1, const String& l2, const String& l3, const S
   display.display();
 }
 
-// --- OTA FUNCTIONS COPIED FROM YOUR MIC CODE ---
+// --- OTA FUNCTIONS FROM MIC CODE ---
 void openOtaMode() {
   otaModeActive = true;
   showOtaMessage("Opening...", "Update mode");
@@ -476,7 +476,7 @@ bool performFirmwareUpdate(const String& binUrl) {
     return false;
   }
 
-  uint8_t buffer[1024];
+  uint8_t buffer[128];
   int written = 0;
   unsigned long lastDataAt = millis();
   bool streamFailed = false;
