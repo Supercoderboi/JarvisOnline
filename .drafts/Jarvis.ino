@@ -115,6 +115,13 @@ void setup() {
   dac_output_enable(DAC_CHANNEL_1);
   dac_output_voltage(DAC_CHANNEL_1, 128); // silence
 
+for(int i=0; i<255; i++) {
+  dac_output_voltage(DAC_CHANNEL_1, i);
+  delayMicroseconds(1000);
+}
+dac_output_voltage(DAC_CHANNEL_1, 128); // back to silence
+Serial.println("DAC test done")
+
   pinMode(JOY_BTN, INPUT_PULLUP);
 
   // Bluetooth callback
