@@ -119,7 +119,9 @@ void setup() {
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
 
   // Tell library to use internal DAC (GPIO25 = Left, GPIO26 = Right)
-  a2dp_sink.set_to_dac_built_in();
+  // To this:
+const i2s_dac_mode_t dac_mode = I2S_DAC_CHANNEL_BOTH_EN;
+a2dp_sink.set_channels_to_dac(dac_mode);
 
   dacTestTone();
   drawMenu();
