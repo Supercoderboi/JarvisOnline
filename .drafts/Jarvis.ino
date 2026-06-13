@@ -105,7 +105,7 @@ bool checkForGitHubUpdate();
 void startManualOtaServer();
 
 void setup() {
-  // Enforcing brownout protection again since hardware is buffered now
+  // Enforcing brownout protection again since hardware is safely buffered now
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 1); 
   Serial.begin(115200);
   delay(500);
@@ -118,10 +118,20 @@ void setup() {
   // Set up connection state callback
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
 
-  // Tell library to use internal DAC (GPIO25 = Left, GPIO26 = Right)
-  // To this:
-const i2s_dac_mode_t dac_mode = I2S_DAC_CHANNEL_BOTH_EN;
-a2dp_sink.set_channels_to_dac(dac_mode);
+  // --- Hardware I2S Configuration for Internal DAC ---
+  static const i2s_config_t i2s_config = {
+      .mode = (i2s_mode_t) (I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN),
+      .sample_rate = 44100,
+      .bits_per_sample = (i2s_bits_per_sample_t) 16,
+      .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+      .communication_format = (i2s_comm_format_t)I2S_COMM_FORMAT_STAND_MSB,
+      .intr_alloc_flags = 0,
+      .dma_buf_count = 8,
+      .dma_buf_len = 64,
+      .use_apll = false,
+      .tx_desc_auto_clear = true
+  };
+  a2dp_sink.set_i2s_config(i2s_config);
 
   dacTestTone();
   drawMenu();
@@ -163,7 +173,6 @@ void loop() {
 
 // --- DAC TEST TONE ---
 void dacTestTone() {
-  // Native library setup takes over DAC pins, we temporarily pulse channel 1 for testing
   updateDisplay("DAC TEST", "Listen...");
   dac_output_enable(DAC_CHANNEL_1);
   for(int i=0; i<255; i++) {
@@ -228,7 +237,7 @@ void handleMenu() {
       String s,p;
       if (loadWiFiCreds(s,p)) connectToWiFi(5000);
 
-      // Start the A2DP Sink Engine
+      // Start the Background A2DP Sink Engine using configured standard registers
       a2dp_sink.start("ESP32-Jack");
       updateBTDisplay();
     }
@@ -319,7 +328,6 @@ void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   btDeviceName = btConnected ? a2dp_sink.get_peer_name() : "None";
   if (btConnected) isPaused = false;
   
-  // Safely trigger display updates via the main menu state context
   if (menuState == MENU_BT) {
     updateBTDisplay();
   }
