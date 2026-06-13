@@ -8,13 +8,14 @@
 #include <Update.h>
 #include <Preferences.h>
 #include <BluetoothA2DPSink.h>
+#include "driver/dac.h"
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-#define VERSION "1.5.1"
+#define VERSION "1.5.2-JACK"
 
 // --- Joystick pins ---
 #define JOY_X 34
@@ -54,9 +55,9 @@ unsigned long lastJoyRead = 0;
 unsigned long lastBtnPress = 0;
 int lastBtnState = HIGH;
 unsigned long btnDownTime = 0;
-bool isPaused = true; // track play/pause state
+bool isPaused = true;
 
-// --- OTA stuff from mic code ---
+// --- OTA stuff ---
 const char* CURRENT_BUILD_ID = FW_BUILD_ID;
 const char* UPDATE_MANIFEST_URLS[] = {
   "https://jarvisupload.netlify.app/firmware/manifest.json",
@@ -109,9 +110,13 @@ void setup() {
   initializeDisplay();
   updateDisplay("BT REMOTE", "Booting...", VERSION);
 
+  // DAC init for GPIO25 audio out
+  dac_output_enable(DAC_CHANNEL_1);
+  dac_output_voltage(DAC_CHANNEL_1, 128); // silence
+
   pinMode(JOY_BTN, INPUT_PULLUP);
 
-  // Bluetooth callbacks - v1.8.11 only has connection callback
+  // Bluetooth callback
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
 
   drawMenu();
@@ -201,8 +206,24 @@ void handleMenu() {
       menuState = MENU_BT;
       String s,p;
       if (loadWiFiCreds(s,p)) connectToWiFi(5000);
-      a2dp_sink.start("ESP32-Remote");
-      updateDisplay("BT Remote", "Pair: ESP32-Remote");
+
+      // START A2DP WITH DAC CALLBACK
+      a2dp_sink.start("ESP32-Jack", [](const uint8_t *data, uint32_t len) {
+        int16_t *samples = (int16_t*)data;
+        int count = len / 2; // 16-bit samples
+
+        for(int i = 0; i < count; i += 2) { // left channel only
+          int16_t sample = samples[i];
+          int dac_val = (sample >> 8) + 128; // -32768..32767 -> 0..255
+
+          if(dac_val < 0) dac_val = 0;
+          if(dac_val > 255) dac_val = 255;
+
+          dac_output_voltage(DAC_CHANNEL_1, dac_val);
+          delayMicroseconds(22); // ~44.1kHz
+        }
+      });
+      updateDisplay("BT Remote", "Pair: ESP32-Jack");
     }
     else if (menuIndex == 1) { // OTA Update
       menuState = MENU_OTA;
@@ -356,7 +377,7 @@ void updateDisplay(const String& l1, const String& l2, const String& l3, const S
   display.display();
 }
 
-// --- OTA FUNCTIONS FROM MIC CODE ---
+// --- OTA FUNCTIONS ---
 void openOtaMode() {
   otaModeActive = true;
   showOtaMessage("Opening...", "Update mode");
