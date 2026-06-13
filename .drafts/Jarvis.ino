@@ -92,6 +92,7 @@ void handleMenu();
 void handleJoystick();
 void updateBTDisplay();
 void onBTConnected(esp_a2d_connection_state_t state, void* ptr);
+void audio_data_callback(const uint8_t *data, uint32_t len); // <-- ADDED
 void openOtaMode();
 void runOtaMode();
 void showOtaMessage(const String& l1, const String& l2="", const String& l3="");
@@ -207,22 +208,9 @@ void handleMenu() {
       String s,p;
       if (loadWiFiCreds(s,p)) connectToWiFi(5000);
 
-      // START A2DP WITH DAC CALLBACK
-      a2dp_sink.start("ESP32-Jack", [](const uint8_t *data, uint32_t len) {
-        int16_t *samples = (int16_t*)data;
-        int count = len / 2; // 16-bit samples
-
-        for(int i = 0; i < count; i += 2) { // left channel only
-          int16_t sample = samples[i];
-          int dac_val = (sample >> 8) + 128; // -32768..32767 -> 0..255
-
-          if(dac_val < 0) dac_val = 0;
-          if(dac_val > 255) dac_val = 255;
-
-          dac_output_voltage(DAC_CHANNEL_1, dac_val);
-          delayMicroseconds(22); // ~44.1kHz
-        }
-      });
+      // START A2DP WITH DAC CALLBACK - FIXED VERSION
+      a2dp_sink.set_stream_reader(audio_data_callback); // <-- CHANGED
+      a2dp_sink.start("ESP32-Jack");
       updateDisplay("BT Remote", "Pair: ESP32-Jack");
     }
     else if (menuIndex == 1) { // OTA Update
@@ -313,6 +301,22 @@ void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   btDeviceName = btConnected? a2dp_sink.get_peer_name() : "None";
   if (btConnected) isPaused = false;
   if (menuState == MENU_BT) updateBTDisplay();
+}
+
+// --- DAC AUDIO CALLBACK - ADDED FUNCTION ---
+void audio_data_callback(const uint8_t *data, uint32_t len) {
+  // A2DP sends 16-bit stereo: L_low L_high R_low R_high...
+  // We use left channel only and convert to 8-bit for DAC
+  for (uint32_t i = 0; i + 3 < len; i += 4) {
+    int16_t sample16 = (int16_t)(data[i] | (data[i + 1] << 8));
+    int dac_val = (sample16 >> 8) + 128; // -32768..32767 -> 0..255
+
+    // Clamp
+    if (dac_val < 0) dac_val = 0;
+    if (dac_val > 255) dac_val = 255;
+
+    dac_output_voltage(DAC_CHANNEL_1, dac_val);
+  }
 }
 
 // --- WiFi NVS ---
