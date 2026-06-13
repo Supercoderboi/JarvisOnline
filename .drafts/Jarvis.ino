@@ -37,10 +37,6 @@ BluetoothA2DPSink a2dp_sink;
 bool btConnected = false;
 String btDeviceName = "None";
 
-// --- Debug vars for display ---
-unsigned long lastAudioPrint = 0;
-int audioCounter = 0;
-
 // --- Web + OTA ---
 WebServer server(80);
 WebServer configServer(80);
@@ -97,7 +93,6 @@ void handleMenu();
 void handleJoystick();
 void updateBTDisplay();
 void onBTConnected(esp_a2d_connection_state_t state, void* ptr);
-void audio_data_callback(const uint8_t *data, uint32_t len);
 void openOtaMode();
 void runOtaMode();
 void showOtaMessage(const String& l1, const String& l2="", const String& l3="");
@@ -110,20 +105,21 @@ bool checkForGitHubUpdate();
 void startManualOtaServer();
 
 void setup() {
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+  // Enforcing brownout protection again since hardware is buffered now
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 1); 
   Serial.begin(115200);
   delay(500);
 
   initializeDisplay();
   updateDisplay("BT REMOTE", "Booting...", VERSION);
 
-  // DAC init for GPIO25 - I2S mode makes it faster
-  dac_i2s_enable();
-  dac_output_enable(DAC_CHANNEL_1);
-  dac_output_voltage(DAC_CHANNEL_1, 128);
-
   pinMode(JOY_BTN, INPUT_PULLUP);
+  
+  // Set up connection state callback
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
+
+  // Tell library to use internal DAC (GPIO25 = Left, GPIO26 = Right)
+  a2dp_sink.set_to_dac_built_in();
 
   dacTestTone();
   drawMenu();
@@ -165,14 +161,16 @@ void loop() {
 
 // --- DAC TEST TONE ---
 void dacTestTone() {
+  // Native library setup takes over DAC pins, we temporarily pulse channel 1 for testing
   updateDisplay("DAC TEST", "Listen...");
+  dac_output_enable(DAC_CHANNEL_1);
   for(int i=0; i<255; i++) {
     dac_output_voltage(DAC_CHANNEL_1, i);
-    delayMicroseconds(2000);
+    delayMicroseconds(1000);
   }
   for(int i=255; i>=0; i--) {
     dac_output_voltage(DAC_CHANNEL_1, i);
-    delayMicroseconds(2000);
+    delayMicroseconds(1000);
   }
   dac_output_voltage(DAC_CHANNEL_1, 128);
   updateDisplay("DAC TEST", "Done");
@@ -201,7 +199,7 @@ void drawMenu() {
 }
 
 void handleMenu() {
-  if (menuState!= MENU_MAIN) return;
+  if (menuState != MENU_MAIN) return;
   if (millis() - lastJoyRead < 200) return;
 
   int xVal = analogRead(JOY_X);
@@ -228,9 +226,9 @@ void handleMenu() {
       String s,p;
       if (loadWiFiCreds(s,p)) connectToWiFi(5000);
 
-      a2dp_sink.set_stream_reader(audio_data_callback);
+      // Start the A2DP Sink Engine
       a2dp_sink.start("ESP32-Jack");
-      updateDisplay("BT Remote", "Pair: ESP32-Jack");
+      updateBTDisplay();
     }
     else if (menuIndex == 1) { // OTA Update
       menuState = MENU_OTA;
@@ -253,7 +251,7 @@ void handleMenu() {
 
 // --- BT Remote Logic ---
 void handleJoystick() {
-  if (menuState!= MENU_BT ||!btConnected) return;
+  if (menuState != MENU_BT) return;
   if (millis() - lastJoyRead < 150) return;
   lastJoyRead = millis();
 
@@ -281,31 +279,33 @@ void handleJoystick() {
   }
   lastBtnState = btnVal;
 
-  if (yVal < 1000) {
-    a2dp_sink.volume_up();
-    updateBTDisplay();
-    delay(150);
-  } else if (yVal > 3000) {
-    a2dp_sink.volume_down();
-    updateBTDisplay();
-    delay(150);
-  }
+  if (btConnected) {
+    if (yVal < 1000) {
+      a2dp_sink.volume_up();
+      updateBTDisplay();
+      delay(150);
+    } else if (yVal > 3000) {
+      a2dp_sink.volume_down();
+      updateBTDisplay();
+      delay(150);
+    }
 
-  if (xVal < 1000) {
-    a2dp_sink.previous();
-    updateBTDisplay();
-    delay(250);
-  } else if (xVal > 3000) {
-    a2dp_sink.next();
-    updateBTDisplay();
-    delay(250);
+    if (xVal < 1000) {
+      a2dp_sink.previous();
+      updateBTDisplay();
+      delay(250);
+    } else if (xVal > 3000) {
+      a2dp_sink.next();
+      updateBTDisplay();
+      delay(250);
+    }
   }
 }
 
 void updateBTDisplay() {
-  String l1 = btConnected? "BT Connected" : "Pairing...";
-  String l2 = btDeviceName.substring(0,14);
-  String l3 = isPaused? "Btn: Play" : "Btn: Pause";
+  String l1 = btConnected ? "BT Connected" : "Pairing...";
+  String l2 = btConnected ? btDeviceName.substring(0,14) : "ESP32-Jack";
+  String l3 = isPaused ? "Btn: Play" : "Btn: Pause";
   String l4 = "Up/Down: Vol";
   String l5 = "L/R: Next/Prev";
   String l6 = "Hold 1s: Back";
@@ -314,30 +314,12 @@ void updateBTDisplay() {
 
 void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   btConnected = (state == ESP_A2D_CONNECTION_STATE_CONNECTED);
-  btDeviceName = btConnected? a2dp_sink.get_peer_name() : "None";
+  btDeviceName = btConnected ? a2dp_sink.get_peer_name() : "None";
   if (btConnected) isPaused = false;
-  if (menuState == MENU_BT) updateBTDisplay();
-}
-
-// --- FIXED AUDIO CALLBACK - uses dac_output_voltage ---
-void audio_data_callback(const uint8_t *data, uint32_t len) {
-  audioCounter++;
-
-  if(millis() - lastAudioPrint > 500) {
-    lastAudioPrint = millis();
-    updateDisplay("BT: ON",
-                  "Audio pkts: " + String(audioCounter),
-                  "Len: " + String(len));
-    audioCounter = 0;
-  }
-
-  // A2DP sends 16-bit stereo: L_low L_high R_low R_high...
-  for (uint32_t i = 0; i + 3 < len; i += 4) {
-    int16_t sample16 = (int16_t)(data[i] | (data[i + 1] << 8)); // Left channel
-    int dac_val = (sample16 >> 8) + 128; // -32768..32767 -> 0..255
-    if (dac_val < 0) dac_val = 0;
-    if (dac_val > 255) dac_val = 255;
-    dac_output_voltage(DAC_CHANNEL_1, dac_val);
+  
+  // Safely trigger display updates via the main menu state context
+  if (menuState == MENU_BT) {
+    updateBTDisplay();
   }
 }
 
@@ -377,7 +359,7 @@ bool connectToWiFi(unsigned long timeoutMs) {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), pass.c_str());
   unsigned long start = millis();
-  while (WiFi.status()!= WL_CONNECTED && millis() - start < timeoutMs) delay(500);
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) delay(500);
   return WiFi.status() == WL_CONNECTED;
 }
 
@@ -414,7 +396,7 @@ void runOtaMode() {
   if (!initialized) {
     initialized = true;
     bool updateApplied = checkForGitHubUpdate();
-    if (!updateApplied ||!otaServerRunning) {
+    if (!updateApplied || !otaServerRunning) {
       startManualOtaServer();
       showOtaMessage("OTA MODE ON", "IP:", WiFi.localIP().toString());
     }
@@ -436,7 +418,7 @@ bool ensureWiFiForOta() {
   WiFi.disconnect(false, false);
   WiFi.reconnect();
   unsigned long reconnectStarted = millis();
-  while (WiFi.status()!= WL_CONNECTED && millis() - reconnectStarted < 10000) delay(250);
+  while (WiFi.status() != WL_CONNECTED && millis() - reconnectStarted < 10000) delay(250);
   return WiFi.status() == WL_CONNECTED;
 }
 
@@ -455,7 +437,7 @@ String fetchRemoteBuildId(String& binUrl, String& errorMessage) {
     }
 
     int httpCode = http.GET();
-    if (httpCode!= HTTP_CODE_OK) {
+    if (httpCode != HTTP_CODE_OK) {
       errorMessage = httpStatusText(http, httpCode);
       http.end();
       continue;
@@ -485,7 +467,7 @@ String fetchRemoteBuildId(String& binUrl, String& errorMessage) {
 }
 
 bool isRemoteBuildNewer(const String& remoteBuildId) {
-  return remoteBuildId.length() > 0 && remoteBuildId!= String(CURRENT_BUILD_ID);
+  return remoteBuildId.length() > 0 && remoteBuildId != String(CURRENT_BUILD_ID);
 }
 
 bool performFirmwareUpdate(const String& binUrl) {
@@ -504,7 +486,7 @@ bool performFirmwareUpdate(const String& binUrl) {
   }
 
   int httpCode = http.GET();
-  if (httpCode!= HTTP_CODE_OK) {
+  if (httpCode != HTTP_CODE_OK) {
     String status = httpStatusText(http, httpCode);
     http.end();
     showOtaMessage("Update Error", status);
@@ -515,7 +497,7 @@ bool performFirmwareUpdate(const String& binUrl) {
   int contentLength = http.getSize();
   WiFiClient* stream = http.getStreamPtr();
 
-  if (!Update.begin(contentLength > 0? contentLength : UPDATE_SIZE_UNKNOWN)) {
+  if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
     Update.printError(Serial);
     http.end();
     showOtaMessage("Update Error", "No space");
@@ -536,7 +518,7 @@ bool performFirmwareUpdate(const String& binUrl) {
 
       int readLen = stream->readBytes(buffer, chunkSize);
       if (readLen > 0) {
-        if (Update.write(buffer, readLen)!= (size_t)readLen) {
+        if (Update.write(buffer, readLen) != (size_t)readLen) {
           Update.printError(Serial);
           Update.abort();
           streamFailed = true;
@@ -564,7 +546,7 @@ bool performFirmwareUpdate(const String& binUrl) {
     }
   }
 
-  bool success =!streamFailed && Update.end(true);
+  bool success = !streamFailed && Update.end(true);
   http.end();
 
   if (success && Update.isFinished()) {
@@ -618,7 +600,7 @@ void startManualOtaServer() {
 
   server.on("/update", HTTP_POST, []() {
     server.sendHeader("Connection", "close");
-    server.send(200, "text/plain", Update.hasError()? "UPDATE FAILED! Rebooting..." : "SUCCESS! Restarting Jarvis...");
+    server.send(200, "text/plain", Update.hasError() ? "UPDATE FAILED! Rebooting..." : "SUCCESS! Restarting Jarvis...");
     delay(2000);
     ESP.restart();
   }, []() {
@@ -627,7 +609,7 @@ void startManualOtaServer() {
       showOtaMessage("Receiving...", "Manual upload");
       if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
     } else if (upload.status == UPLOAD_FILE_WRITE) {
-      if (Update.write(upload.buf, upload.currentSize)!= upload.currentSize) Update.printError(Serial);
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) Update.printError(Serial);
     } else if (upload.status == UPLOAD_FILE_END) {
       if (Update.end(true)) showOtaMessage("DONE!", "Rebooting...");
     }
