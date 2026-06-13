@@ -15,7 +15,7 @@
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-#define VERSION "1.5.3-JACK-TEST"
+#define VERSION "1.5.4-JACK-I2S"
 
 // --- Joystick pins ---
 #define JOY_X 34
@@ -36,6 +36,10 @@ Preferences prefs;
 BluetoothA2DPSink a2dp_sink;
 bool btConnected = false;
 String btDeviceName = "None";
+
+// --- Debug vars for display ---
+unsigned long lastAudioPrint = 0;
+int audioCounter = 0;
 
 // --- Web + OTA ---
 WebServer server(80);
@@ -81,7 +85,7 @@ const char* wifiConfigPage =
   "<input type='submit' value='Save & Reboot'></form>";
 
 // Prototypes
-void dacTestTone(); // <-- ADDED
+void dacTestTone();
 void saveWiFiCreds(String ssid, String pass);
 bool loadWiFiCreds(String &ssid, String &pass);
 void startConfigPortal();
@@ -113,18 +117,15 @@ void setup() {
   initializeDisplay();
   updateDisplay("BT REMOTE", "Booting...", VERSION);
 
-  // DAC init for GPIO25 audio out
+  // I2S DAC mode for GPIO25 - MUCH better for A2DP
+  dac_i2s_enable(); // <-- KEY CHANGE
   dac_output_enable(DAC_CHANNEL_1);
-  dac_output_voltage(DAC_CHANNEL_1, 128); // silence
+  dac_output_voltage(DAC_CHANNEL_1, 128);
 
   pinMode(JOY_BTN, INPUT_PULLUP);
-
-  // Bluetooth callback
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
 
-  // DAC TEST TONE - you should hear "weee" here
-  dacTestTone(); // <-- ADDED
-
+  dacTestTone();
   drawMenu();
 }
 
@@ -142,7 +143,7 @@ void loop() {
     return;
   }
 
-  // 5s hold = reset WiFi from any menu
+  // 5s hold = reset WiFi
   int btnVal = digitalRead(JOY_BTN);
   if (btnVal == LOW) {
     if (btnDownTime == 0) btnDownTime = millis();
@@ -162,24 +163,18 @@ void loop() {
   handleMenu();
 }
 
-// --- DAC TEST TONE - ADDED FUNCTION ---
+// --- DAC TEST TONE ---
 void dacTestTone() {
   updateDisplay("DAC TEST", "Listen...");
-  Serial.println("DAC sweep starting...");
-
-  // Rising sweep 0-255
   for(int i=0; i<255; i++) {
     dac_output_voltage(DAC_CHANNEL_1, i);
     delayMicroseconds(2000);
   }
-  // Falling sweep 255-0
   for(int i=255; i>=0; i--) {
     dac_output_voltage(DAC_CHANNEL_1, i);
     delayMicroseconds(2000);
   }
-
-  dac_output_voltage(DAC_CHANNEL_1, 128); // back to silence
-  Serial.println("DAC test done");
+  dac_output_voltage(DAC_CHANNEL_1, 128);
   updateDisplay("DAC TEST", "Done");
   delay(1000);
 }
@@ -212,7 +207,6 @@ void handleMenu() {
   int xVal = analogRead(JOY_X);
   int btnVal = digitalRead(JOY_BTN);
 
-  // Left/Right to move cursor
   if (xVal < 1000) {
     menuIndex--;
     if (menuIndex < 0) menuIndex = menuCount - 1;
@@ -225,7 +219,6 @@ void handleMenu() {
     drawMenu();
   }
 
-  // Button press = select
   if (btnVal == LOW && lastBtnState == HIGH && millis() - lastBtnPress > 300) {
     lastBtnPress = millis();
     lastBtnState = btnVal;
@@ -268,7 +261,6 @@ void handleJoystick() {
   int yVal = analogRead(JOY_Y);
   int btnVal = digitalRead(JOY_BTN);
 
-  // Button = Play/Pause toggle, Long press 1s = back to menu
   if (btnVal == LOW && lastBtnState == HIGH && millis() - lastBtnPress > 300) {
     if (millis() - btnDownTime > 1000) {
       a2dp_sink.end();
@@ -289,7 +281,6 @@ void handleJoystick() {
   }
   lastBtnState = btnVal;
 
-  // Y = Volume
   if (yVal < 1000) {
     a2dp_sink.volume_up();
     updateBTDisplay();
@@ -300,7 +291,6 @@ void handleJoystick() {
     delay(150);
   }
 
-  // X = Next/Prev
   if (xVal < 1000) {
     a2dp_sink.previous();
     updateBTDisplay();
@@ -329,17 +319,23 @@ void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   if (menuState == MENU_BT) updateBTDisplay();
 }
 
-// --- DAC AUDIO CALLBACK ---
+// --- I2S DAC AUDIO CALLBACK WITH DISPLAY DEBUG ---
 void audio_data_callback(const uint8_t *data, uint32_t len) {
-  static uint32_t counter = 0;
-  if(counter++ % 2000 == 0) Serial.println("Audio callback fired!"); // Debug
+  audioCounter++;
 
-  for (uint32_t i = 0; i + 3 < len; i += 4) {
-    int16_t sample16 = (int16_t)(data[i] | (data[i + 1] << 8));
-    int dac_val = (sample16 >> 8) + 128;
-    if (dac_val < 0) dac_val = 0;
-    if (dac_val > 255) dac_val = 255;
-    dac_output_voltage(DAC_CHANNEL_1, dac_val);
+  // Update display every 500ms with audio packet count
+  if(millis() - lastAudioPrint > 500) {
+    lastAudioPrint = millis();
+    updateDisplay("BT: ON",
+                  "Audio pkts: " + String(audioCounter),
+                  "Len: " + String(len),
+                  "I2S Mode");
+    audioCounter = 0;
+  }
+
+  // Write raw bytes to I2S DAC - no conversion needed
+  for (uint32_t i = 0; i < len; i++) {
+    dac_i2s_write(data[i]);
   }
 }
 
