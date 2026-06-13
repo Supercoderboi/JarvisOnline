@@ -15,12 +15,12 @@
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-#define VERSION "1.5.2-JACK"
+#define VERSION "1.5.3-JACK-TEST"
 
 // --- Joystick pins ---
 #define JOY_X 34
 #define JOY_Y 35
-#define JOY_BTN 33 // Add 10k pullup to 3.3V
+#define JOY_BTN 33
 
 // --- Nokia 5110 ---
 #define NOKIA_CLK 18
@@ -81,6 +81,7 @@ const char* wifiConfigPage =
   "<input type='submit' value='Save & Reboot'></form>";
 
 // Prototypes
+void dacTestTone(); // <-- ADDED
 void saveWiFiCreds(String ssid, String pass);
 bool loadWiFiCreds(String &ssid, String &pass);
 void startConfigPortal();
@@ -92,7 +93,7 @@ void handleMenu();
 void handleJoystick();
 void updateBTDisplay();
 void onBTConnected(esp_a2d_connection_state_t state, void* ptr);
-void audio_data_callback(const uint8_t *data, uint32_t len); // <-- ADDED
+void audio_data_callback(const uint8_t *data, uint32_t len);
 void openOtaMode();
 void runOtaMode();
 void showOtaMessage(const String& l1, const String& l2="", const String& l3="");
@@ -107,6 +108,7 @@ void startManualOtaServer();
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   Serial.begin(115200);
+  delay(500);
 
   initializeDisplay();
   updateDisplay("BT REMOTE", "Booting...", VERSION);
@@ -115,17 +117,13 @@ void setup() {
   dac_output_enable(DAC_CHANNEL_1);
   dac_output_voltage(DAC_CHANNEL_1, 128); // silence
 
-for(int i=0; i<255; i++) {
-  dac_output_voltage(DAC_CHANNEL_1, i);
-  delayMicroseconds(1000);
-}
-dac_output_voltage(DAC_CHANNEL_1, 128); // back to silence
-Serial.println("DAC test done")
-
   pinMode(JOY_BTN, INPUT_PULLUP);
 
   // Bluetooth callback
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
+
+  // DAC TEST TONE - you should hear "weee" here
+  dacTestTone(); // <-- ADDED
 
   drawMenu();
 }
@@ -162,6 +160,28 @@ void loop() {
 
   handleJoystick();
   handleMenu();
+}
+
+// --- DAC TEST TONE - ADDED FUNCTION ---
+void dacTestTone() {
+  updateDisplay("DAC TEST", "Listen...");
+  Serial.println("DAC sweep starting...");
+
+  // Rising sweep 0-255
+  for(int i=0; i<255; i++) {
+    dac_output_voltage(DAC_CHANNEL_1, i);
+    delayMicroseconds(2000);
+  }
+  // Falling sweep 255-0
+  for(int i=255; i>=0; i--) {
+    dac_output_voltage(DAC_CHANNEL_1, i);
+    delayMicroseconds(2000);
+  }
+
+  dac_output_voltage(DAC_CHANNEL_1, 128); // back to silence
+  Serial.println("DAC test done");
+  updateDisplay("DAC TEST", "Done");
+  delay(1000);
 }
 
 // --- Menu Logic ---
@@ -215,8 +235,7 @@ void handleMenu() {
       String s,p;
       if (loadWiFiCreds(s,p)) connectToWiFi(5000);
 
-      // START A2DP WITH DAC CALLBACK - FIXED VERSION
-      a2dp_sink.set_stream_reader(audio_data_callback); // <-- CHANGED
+      a2dp_sink.set_stream_reader(audio_data_callback);
       a2dp_sink.start("ESP32-Jack");
       updateDisplay("BT Remote", "Pair: ESP32-Jack");
     }
@@ -310,18 +329,16 @@ void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   if (menuState == MENU_BT) updateBTDisplay();
 }
 
-// --- DAC AUDIO CALLBACK - ADDED FUNCTION ---
+// --- DAC AUDIO CALLBACK ---
 void audio_data_callback(const uint8_t *data, uint32_t len) {
-  // A2DP sends 16-bit stereo: L_low L_high R_low R_high...
-  // We use left channel only and convert to 8-bit for DAC
+  static uint32_t counter = 0;
+  if(counter++ % 2000 == 0) Serial.println("Audio callback fired!"); // Debug
+
   for (uint32_t i = 0; i + 3 < len; i += 4) {
     int16_t sample16 = (int16_t)(data[i] | (data[i + 1] << 8));
-    int dac_val = (sample16 >> 8) + 128; // -32768..32767 -> 0..255
-
-    // Clamp
+    int dac_val = (sample16 >> 8) + 128;
     if (dac_val < 0) dac_val = 0;
     if (dac_val > 255) dac_val = 255;
-
     dac_output_voltage(DAC_CHANNEL_1, dac_val);
   }
 }
