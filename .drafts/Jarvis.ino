@@ -15,7 +15,7 @@
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-#define VERSION "1.5.4-JACK-I2S"
+#define VERSION "1.5.5-JACK-FIX"
 
 // --- Joystick pins ---
 #define JOY_X 34
@@ -117,8 +117,8 @@ void setup() {
   initializeDisplay();
   updateDisplay("BT REMOTE", "Booting...", VERSION);
 
-  // I2S DAC mode for GPIO25 - MUCH better for A2DP
-  dac_i2s_enable(); // <-- KEY CHANGE
+  // DAC init for GPIO25 - I2S mode makes it faster
+  dac_i2s_enable();
   dac_output_enable(DAC_CHANNEL_1);
   dac_output_voltage(DAC_CHANNEL_1, 128);
 
@@ -319,23 +319,25 @@ void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   if (menuState == MENU_BT) updateBTDisplay();
 }
 
-// --- I2S DAC AUDIO CALLBACK WITH DISPLAY DEBUG ---
+// --- FIXED AUDIO CALLBACK - uses dac_output_voltage ---
 void audio_data_callback(const uint8_t *data, uint32_t len) {
   audioCounter++;
 
-  // Update display every 500ms with audio packet count
   if(millis() - lastAudioPrint > 500) {
     lastAudioPrint = millis();
     updateDisplay("BT: ON",
                   "Audio pkts: " + String(audioCounter),
-                  "Len: " + String(len),
-                  "I2S Mode");
+                  "Len: " + String(len));
     audioCounter = 0;
   }
 
-  // Write raw bytes to I2S DAC - no conversion needed
-  for (uint32_t i = 0; i < len; i++) {
-    dac_i2s_write(data[i]);
+  // A2DP sends 16-bit stereo: L_low L_high R_low R_high...
+  for (uint32_t i = 0; i + 3 < len; i += 4) {
+    int16_t sample16 = (int16_t)(data[i] | (data[i + 1] << 8)); // Left channel
+    int dac_val = (sample16 >> 8) + 128; // -32768..32767 -> 0..255
+    if (dac_val < 0) dac_val = 0;
+    if (dac_val > 255) dac_val = 255;
+    dac_output_voltage(DAC_CHANNEL_1, dac_val);
   }
 }
 
