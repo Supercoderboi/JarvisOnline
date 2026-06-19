@@ -17,15 +17,15 @@
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-#define VERSION "1.7.0-AI-MENU"
+#define VERSION "1.8.0-FULL"
 
 // --- Joystick pins ---
 #define JOY_X 34
 #define JOY_Y 35
 #define JOY_BTN 33
 
-// --- Touch sensor + Mic pins for WROOM-32C ---
-#define TOUCH_PIN 27 // External touch sensor. HIGH when touched
+// --- Touch sensor + Mic pins for ESP32 WROOM-32C ---
+#define TOUCH_PIN 27 // External touch sensor. HIGH when touched. Change to LOW if active-low
 #define MIC_AO_PIN 32 // Mic analog out → GPIO32
 #define SAMPLE_RATE 8000
 
@@ -63,7 +63,7 @@ unsigned long lastBtnPress = 0;
 int lastBtnState = HIGH;
 unsigned long btnDownTime = 0;
 bool isPaused = true;
-bool aiWifiConnected = false; // Track if AI menu has wifi
+bool aiWifiConnected = false;
 
 // --- Voice recording vars ---
 const char* RECORDING_FILE_PATH = "/recording.pcm";
@@ -136,11 +136,12 @@ void startManualOtaServer();
 bool beginRecording();
 bool flushSampleBufferToFile();
 void finishRecordingAndUpload();
-bool uploadRecordingFile();
+String uploadRecordingFile();
 String sendChunkToServer(const uint8_t* chunkData, size_t chunkSize, bool isFinalChunk, bool resetSession);
 String readHttpResponseBody(WiFiClient& client);
 String extractJsonField(const String& json, const char* key);
 String decodeJsonString(const String& encoded);
+void scrollTextOnLCD(String text);
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 1);
@@ -164,16 +165,16 @@ void setup() {
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
 
   static const i2s_config_t i2s_config = {
-  .mode = (i2s_mode_t) (I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN),
-  .sample_rate = 44100,
-  .bits_per_sample = (i2s_bits_per_sample_t) 16,
-  .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
-  .communication_format = (i2s_comm_format_t)I2S_COMM_FORMAT_STAND_MSB,
-  .intr_alloc_flags = 0,
-  .dma_buf_count = 8,
-  .dma_buf_len = 64,
-  .use_apll = false,
-  .tx_desc_auto_clear = true
+   .mode = (i2s_mode_t) (I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN),
+   .sample_rate = 44100,
+   .bits_per_sample = (i2s_bits_per_sample_t) 16,
+   .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+   .communication_format = (i2s_comm_format_t)I2S_COMM_FORMAT_STAND_MSB,
+   .intr_alloc_flags = 0,
+   .dma_buf_count = 8,
+   .dma_buf_len = 64,
+   .use_apll = false,
+   .tx_desc_auto_clear = true
   };
   a2dp_sink.set_i2s_config(i2s_config);
 
@@ -267,6 +268,34 @@ void updateAIDisplay() {
   }
 }
 
+// --- SCROLL TEXT ON LCD ---
+void scrollTextOnLCD(String text) {
+  const int charsPerLine = 14;
+  int len = text.length();
+
+  for (int i = 0; i < len; i += charsPerLine) {
+    display.clearDisplay();
+    display.setCursor(0, 0);
+
+    String line1 = text.substring(i, min(i + charsPerLine, len));
+    display.println(line1);
+
+    if (i + charsPerLine < len) {
+      String line2 = text.substring(i + charsPerLine, min(i + charsPerLine*2, len));
+      display.println(line2);
+    }
+
+    display.display();
+    delay(2000); // 2s per screen. Change for speed
+
+    // Exit scroll if user touches sensor again
+    if (digitalRead(TOUCH_PIN) == HIGH) {
+      delay(500);
+      break;
+    }
+  }
+}
+
 // --- VOICE FUNCTIONS ---
 bool beginRecording() {
   if (recordingFile) recordingFile.close();
@@ -328,20 +357,29 @@ void finishRecordingAndUpload() {
     }
   }
 
-  if (!uploadRecordingFile()) {
+  String serverResponse = uploadRecordingFile();
+  if (serverResponse.length() == 0) {
     updateDisplay("Upload fail", "Server error");
     delay(1500);
     return;
   }
-  updateDisplay("Upload OK", "Response sent");
+
+  // Extract response text from JSON
+  String aiReply = extractJsonField(serverResponse, "response");
+  if (aiReply.length() == 0) aiReply = serverResponse;
+
+  updateDisplay("AI Reply:", aiReply.substring(0,14));
   delay(1500);
+
+  scrollTextOnLCD("Jarvis: " + aiReply);
+  updateAIDisplay();
 }
 
-bool uploadRecordingFile() {
+String uploadRecordingFile() {
   File pcmFile = SPIFFS.open(RECORDING_FILE_PATH, FILE_READ);
   if (!pcmFile) {
     Serial.println("Can't open file for upload");
-    return false;
+    return "";
   }
 
   size_t totalBytes = pcmFile.size();
@@ -358,7 +396,7 @@ bool uploadRecordingFile() {
     if (finalResponse.length() == 0) {
       Serial.println("Server returned empty response");
       pcmFile.close();
-      return false;
+      return "";
     }
     resetSession = false;
     uploadChunkIndex++;
@@ -367,7 +405,7 @@ bool uploadRecordingFile() {
   pcmFile.close();
   SPIFFS.remove(RECORDING_FILE_PATH);
   Serial.println("Server reply: " + finalResponse);
-  return true;
+  return finalResponse;
 }
 
 String sendChunkToServer(const uint8_t* chunkData, size_t chunkSize, bool isFinalChunk, bool resetSession) {
@@ -499,14 +537,14 @@ void handleMenu() {
     lastBtnPress = millis();
     lastBtnState = btnVal;
 
-    if (menuIndex == 0) { // BT Remote
+    if (menuIndex == 0) {
       menuState = MENU_BT;
       String s,p;
       if (loadWiFiCreds(s,p)) connectToWiFi(5000);
       a2dp_sink.start("ESP32-Jack");
       updateBTDisplay();
     }
-    else if (menuIndex == 1) { // AI Voice - NEW
+    else if (menuIndex == 1) {
       menuState = MENU_AI;
       updateDisplay("AI Voice", "WiFi: Loading...");
 
@@ -525,14 +563,14 @@ void handleMenu() {
         }
       }
     }
-    else if (menuIndex == 2) { // OTA Update
+    else if (menuIndex == 2) {
       menuState = MENU_OTA;
       String s,p;
       if (!loadWiFiCreds(s,p)) startConfigPortal();
       else if (!connectToWiFi(10000)) startConfigPortal();
       openOtaMode();
     }
-    else if (menuIndex == 3) { // Reset WiFi
+    else if (menuIndex == 3) {
       prefs.begin("wifi-creds", false);
       prefs.clear();
       prefs.end();
@@ -545,7 +583,6 @@ void handleMenu() {
 }
 
 void handleJoystick() {
-  // BT menu joystick controls
   if (menuState == MENU_BT) {
     if (millis() - lastJoyRead < 150) return;
     lastJoyRead = millis();
@@ -576,7 +613,6 @@ void handleJoystick() {
     }
   }
 
-  // AI menu: Hold BT 1s to exit back to main
   if (menuState == MENU_AI) {
     int btnVal = digitalRead(JOY_BTN);
     if (btnVal == LOW) {
@@ -610,7 +646,6 @@ void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   if (menuState == MENU_BT) updateBTDisplay();
 }
 
-// --- Rest of WiFi/OTA functions unchanged ---
 void saveWiFiCreds(String ssid, String pass) {
   prefs.begin("wifi-creds", false);
   prefs.putString("ssid", ssid);
