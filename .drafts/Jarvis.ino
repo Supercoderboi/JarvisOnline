@@ -17,7 +17,7 @@
 #ifndef FW_BUILD_ID
 #define FW_BUILD_ID "dev"
 #endif
-#define VERSION "1.6.2-WROOM32C"
+#define VERSION "1.7.0-AI-MENU"
 
 // --- Joystick pins ---
 #define JOY_X 34
@@ -26,7 +26,7 @@
 
 // --- Touch sensor + Mic pins for WROOM-32C ---
 #define TOUCH_PIN 27 // External touch sensor. HIGH when touched
-#define MIC_AO_PIN 32 // Mic analog out → GPIO32 instead of 36
+#define MIC_AO_PIN 32 // Mic analog out → GPIO32
 #define SAMPLE_RATE 8000
 
 // --- Nokia 5110 ---
@@ -52,17 +52,18 @@ bool otaServerRunning = false;
 bool configMode = false;
 
 // --- Menu ---
-enum MenuState { MENU_MAIN, MENU_BT, MENU_OTA, MENU_WIFI_RESET };
+enum MenuState { MENU_MAIN, MENU_BT, MENU_OTA, MENU_WIFI_RESET, MENU_AI };
 MenuState menuState = MENU_MAIN;
 int menuIndex = 0;
-const char* mainMenuItems[] = {"BT Remote", "OTA Update", "Reset WiFi"};
-const int menuCount = 3;
+const char* mainMenuItems[] = {"BT Remote", "AI Voice", "OTA Update", "Reset WiFi"};
+const int menuCount = 4;
 
 unsigned long lastJoyRead = 0;
 unsigned long lastBtnPress = 0;
 int lastBtnState = HIGH;
 unsigned long btnDownTime = 0;
 bool isPaused = true;
+bool aiWifiConnected = false; // Track if AI menu has wifi
 
 // --- Voice recording vars ---
 const char* RECORDING_FILE_PATH = "/recording.pcm";
@@ -119,6 +120,7 @@ void drawMenu();
 void handleMenu();
 void handleJoystick();
 void updateBTDisplay();
+void updateAIDisplay();
 void onBTConnected(esp_a2d_connection_state_t state, void* ptr);
 void openOtaMode();
 void runOtaMode();
@@ -162,16 +164,16 @@ void setup() {
   a2dp_sink.set_on_connection_state_changed(onBTConnected);
 
   static const i2s_config_t i2s_config = {
-   .mode = (i2s_mode_t) (I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN),
-   .sample_rate = 44100,
-   .bits_per_sample = (i2s_bits_per_sample_t) 16,
-   .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
-   .communication_format = (i2s_comm_format_t)I2S_COMM_FORMAT_STAND_MSB,
-   .intr_alloc_flags = 0,
-   .dma_buf_count = 8,
-   .dma_buf_len = 64,
-   .use_apll = false,
-   .tx_desc_auto_clear = true
+  .mode = (i2s_mode_t) (I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN),
+  .sample_rate = 44100,
+  .bits_per_sample = (i2s_bits_per_sample_t) 16,
+  .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+  .communication_format = (i2s_comm_format_t)I2S_COMM_FORMAT_STAND_MSB,
+  .intr_alloc_flags = 0,
+  .dma_buf_count = 8,
+  .dma_buf_len = 64,
+  .use_apll = false,
+  .tx_desc_auto_clear = true
   };
   a2dp_sink.set_i2s_config(i2s_config);
 
@@ -212,41 +214,56 @@ void loop() {
   handleJoystick();
   handleMenu();
 
-  // --- HOLD-TO-RECORD LOGIC ---
-  bool touchActive = digitalRead(TOUCH_PIN) == HIGH; // Change to LOW if sensor is active-low
+  // --- HOLD-TO-RECORD LOGIC - ONLY IN AI MENU ---
+  if (menuState == MENU_AI && aiWifiConnected) {
+    bool touchActive = digitalRead(TOUCH_PIN) == HIGH; // Change to LOW if sensor active-low
 
-  if (touchActive) {
-    if (!isRecording) {
-      if (beginRecording()) {
-        Serial.println("Touch pressed. Recording...");
-        updateDisplay("Recording...", "Hold touch");
+    if (touchActive) {
+      if (!isRecording) {
+        if (beginRecording()) {
+          Serial.println("Touch pressed. Recording...");
+          updateAIDisplay();
+        }
+      }
+    } else {
+      if (isRecording) {
+        Serial.println("Touch released. Stopping...");
+        finishRecordingAndUpload();
+        updateAIDisplay();
       }
     }
-  } else {
+
+    // Sample audio while recording
     if (isRecording) {
-      Serial.println("Touch released. Stopping...");
-      finishRecordingAndUpload();
-      drawMenu();
-    }
-  }
+      const unsigned long interval = 1000000UL / SAMPLE_RATE;
+      if (micros() >= nextSampleTime) {
+        int analogVal = analogRead(MIC_AO_PIN);
+        int16_t sample = (analogVal - 2048) << 4;
+        sampleBuffer[sampleBufferCount++] = sample;
+        totalRecordedBytes += sizeof(int16_t);
+        nextSampleTime += interval;
 
-  // Sample audio while recording
-  if (isRecording) {
-    const unsigned long interval = 1000000UL / SAMPLE_RATE;
-    if (micros() >= nextSampleTime) {
-      int analogVal = analogRead(MIC_AO_PIN); // Now reads GPIO32
-      int16_t sample = (analogVal - 2048) << 4;
-      sampleBuffer[sampleBufferCount++] = sample;
-      totalRecordedBytes += sizeof(int16_t);
-      nextSampleTime += interval;
-
-      if (sampleBufferCount >= SAMPLE_BUFFER_SAMPLES) {
-        if (!flushSampleBufferToFile()) {
-          isRecording = false;
-          return;
+        if (sampleBufferCount >= SAMPLE_BUFFER_SAMPLES) {
+          if (!flushSampleBufferToFile()) {
+            isRecording = false;
+            return;
+          }
         }
       }
     }
+  }
+}
+
+// --- AI MENU DISPLAY ---
+void updateAIDisplay() {
+  if (!aiWifiConnected) {
+    updateDisplay("AI Voice", "WiFi: Connecting", "Hold touch to talk");
+    return;
+  }
+  if (isRecording) {
+    updateDisplay("AI Voice", "Recording...", "Release to send");
+  } else {
+    updateDisplay("AI Voice", "WiFi: OK", "Hold touch to talk", "Hold BT 1s: Back");
   }
 }
 
@@ -257,6 +274,8 @@ bool beginRecording() {
   recordingFile = SPIFFS.open(RECORDING_FILE_PATH, FILE_WRITE);
   if (!recordingFile) {
     Serial.println("Could not open SPIFFS recording file.");
+    updateDisplay("Error", "SPIFFS fail");
+    delay(1500);
     return false;
   }
   isRecording = true;
@@ -277,6 +296,8 @@ bool flushSampleBufferToFile() {
     Serial.println("SPIFFS write failed.");
     recordingFile.close();
     isRecording = false;
+    updateDisplay("Error", "Write fail");
+    delay(1500);
     return false;
   }
   return true;
@@ -289,29 +310,39 @@ void finishRecordingAndUpload() {
 
   if (totalRecordedBytes == 0) {
     Serial.println("No audio captured.");
-    updateDisplay("No audio", "Nothing sent");
+    updateDisplay("No audio", "Try again");
     delay(1500);
     return;
   }
 
-  updateDisplay("Uploading...", String(totalRecordedBytes) + " bytes");
+  updateDisplay("Uploading...", String(totalRecordedBytes/1024) + "KB");
+
+  if (WiFi.status()!= WL_CONNECTED) {
+    updateDisplay("Upload fail", "WiFi lost", "Reconnecting...");
+    delay(2000);
+    aiWifiConnected = connectToWiFi(10000);
+    if (!aiWifiConnected) {
+      updateDisplay("Upload fail", "No WiFi");
+      delay(1500);
+      return;
+    }
+  }
+
   if (!uploadRecordingFile()) {
-    updateDisplay("Upload fail", "Check WiFi");
+    updateDisplay("Upload fail", "Server error");
     delay(1500);
     return;
   }
-  updateDisplay("Upload OK", "Done");
+  updateDisplay("Upload OK", "Response sent");
   delay(1500);
 }
 
 bool uploadRecordingFile() {
-  if (WiFi.status()!= WL_CONNECTED) {
-    Serial.println("Wi-Fi disconnected.");
+  File pcmFile = SPIFFS.open(RECORDING_FILE_PATH, FILE_READ);
+  if (!pcmFile) {
+    Serial.println("Can't open file for upload");
     return false;
   }
-
-  File pcmFile = SPIFFS.open(RECORDING_FILE_PATH, FILE_READ);
-  if (!pcmFile) return false;
 
   size_t totalBytes = pcmFile.size();
   bool resetSession = true;
@@ -321,8 +352,11 @@ bool uploadRecordingFile() {
     size_t bytesRead = pcmFile.read(uploadBuffer, UPLOAD_CHUNK_BYTES);
     bool isFinalChunk = pcmFile.position() >= totalBytes;
 
+    Serial.printf("Chunk %d: %u bytes %s\n", uploadChunkIndex, (unsigned int)bytesRead, isFinalChunk? "FINAL" : "");
     finalResponse = sendChunkToServer(uploadBuffer, bytesRead, isFinalChunk, resetSession);
+
     if (finalResponse.length() == 0) {
+      Serial.println("Server returned empty response");
       pcmFile.close();
       return false;
     }
@@ -338,7 +372,10 @@ bool uploadRecordingFile() {
 
 String sendChunkToServer(const uint8_t* chunkData, size_t chunkSize, bool isFinalChunk, bool resetSession) {
   WiFiClient client;
-  if (!client.connect(host, serverPort)) return "";
+  if (!client.connect(host, serverPort)) {
+    Serial.println("TCP connect failed");
+    return "";
+  }
 
   String boundary = "----ESP32Boundary";
   String headerPart =
@@ -370,14 +407,17 @@ String sendChunkToServer(const uint8_t* chunkData, size_t chunkSize, bool isFina
   if (chunkSize > 0) client.write(chunkData, chunkSize);
   client.print(footerPart);
 
-  unsigned long responseDeadline = millis() + 15000;
+  unsigned long responseDeadline = millis() + 20000;
   while (!client.available() && client.connected() && millis() < responseDeadline) delay(10);
   if (!client.available()) {
+    Serial.println("No response from server");
     client.stop();
     return "";
   }
 
-  client.readStringUntil('\n');
+  String statusLine = client.readStringUntil('\n');
+  Serial.println("Status: " + statusLine);
+
   while (client.connected() || client.available()) {
     String line = client.readStringUntil('\n');
     if (line == "\r" || line.length() == 0) break;
@@ -431,17 +471,7 @@ String decodeJsonString(const String& encoded) {
   return decoded;
 }
 
-// --- All your original menu/BT/OTA functions unchanged ---
-void dacTestTone() {
-  updateDisplay("DAC TEST", "Listen...");
-  dac_output_enable(DAC_CHANNEL_1);
-  for(int i=0; i<255; i++) { dac_output_voltage(DAC_CHANNEL_1, i); delayMicroseconds(1000); }
-  for(int i=255; i>=0; i--) { dac_output_voltage(DAC_CHANNEL_1, i); delayMicroseconds(1000); }
-  dac_output_voltage(DAC_CHANNEL_1, 128);
-  updateDisplay("DAC TEST", "Done");
-  delay(1000);
-}
-
+// --- MENU LOGIC ---
 void drawMenu() {
   display.clearDisplay();
   display.setCursor(0, 0);
@@ -468,21 +498,41 @@ void handleMenu() {
   if (btnVal == LOW && lastBtnState == HIGH && millis() - lastBtnPress > 300) {
     lastBtnPress = millis();
     lastBtnState = btnVal;
-    if (menuIndex == 0) {
+
+    if (menuIndex == 0) { // BT Remote
       menuState = MENU_BT;
       String s,p;
       if (loadWiFiCreds(s,p)) connectToWiFi(5000);
       a2dp_sink.start("ESP32-Jack");
       updateBTDisplay();
     }
-    else if (menuIndex == 1) {
+    else if (menuIndex == 1) { // AI Voice - NEW
+      menuState = MENU_AI;
+      updateDisplay("AI Voice", "WiFi: Loading...");
+
+      String s,p;
+      if (!loadWiFiCreds(s,p)) {
+        startConfigPortal();
+      } else {
+        aiWifiConnected = connectToWiFi(10000);
+        if (!aiWifiConnected) {
+          updateDisplay("AI Voice", "WiFi Failed", "Check credentials");
+          delay(2000);
+          menuState = MENU_MAIN;
+          drawMenu();
+        } else {
+          updateAIDisplay();
+        }
+      }
+    }
+    else if (menuIndex == 2) { // OTA Update
       menuState = MENU_OTA;
       String s,p;
       if (!loadWiFiCreds(s,p)) startConfigPortal();
       else if (!connectToWiFi(10000)) startConfigPortal();
       openOtaMode();
     }
-    else if (menuIndex == 2) {
+    else if (menuIndex == 3) { // Reset WiFi
       prefs.begin("wifi-creds", false);
       prefs.clear();
       prefs.end();
@@ -495,33 +545,51 @@ void handleMenu() {
 }
 
 void handleJoystick() {
-  if (menuState!= MENU_BT) return;
-  if (millis() - lastJoyRead < 150) return;
-  lastJoyRead = millis();
-  int xVal = analogRead(JOY_X);
-  int yVal = analogRead(JOY_Y);
-  int btnVal = digitalRead(JOY_BTN);
+  // BT menu joystick controls
+  if (menuState == MENU_BT) {
+    if (millis() - lastJoyRead < 150) return;
+    lastJoyRead = millis();
+    int xVal = analogRead(JOY_X);
+    int yVal = analogRead(JOY_Y);
+    int btnVal = digitalRead(JOY_BTN);
 
-  if (btnVal == LOW && lastBtnState == HIGH && millis() - lastBtnPress > 300) {
-    if (millis() - btnDownTime > 1000) {
-      a2dp_sink.end();
-      menuState = MENU_MAIN;
-      menuIndex = 0;
-      drawMenu();
-    } else {
-      if (isPaused) { a2dp_sink.play(); isPaused = false; }
-      else { a2dp_sink.pause(); isPaused = true; }
-      updateBTDisplay();
+    if (btnVal == LOW && lastBtnState == HIGH && millis() - lastBtnPress > 300) {
+      if (millis() - btnDownTime > 1000) {
+        a2dp_sink.end();
+        menuState = MENU_MAIN;
+        menuIndex = 0;
+        drawMenu();
+      } else {
+        if (isPaused) { a2dp_sink.play(); isPaused = false; }
+        else { a2dp_sink.pause(); isPaused = true; }
+        updateBTDisplay();
+      }
+      lastBtnPress = millis();
     }
-    lastBtnPress = millis();
-  }
-  lastBtnState = btnVal;
+    lastBtnState = btnVal;
 
-  if (btConnected) {
-    if (yVal < 1000) { a2dp_sink.volume_up(); updateBTDisplay(); delay(150); }
-    else if (yVal > 3000) { a2dp_sink.volume_down(); updateBTDisplay(); delay(150); }
-    if (xVal < 1000) { a2dp_sink.previous(); updateBTDisplay(); delay(250); }
-    else if (xVal > 3000) { a2dp_sink.next(); updateBTDisplay(); delay(250); }
+    if (btConnected) {
+      if (yVal < 1000) { a2dp_sink.volume_up(); updateBTDisplay(); delay(150); }
+      else if (yVal > 3000) { a2dp_sink.volume_down(); updateBTDisplay(); delay(150); }
+      if (xVal < 1000) { a2dp_sink.previous(); updateBTDisplay(); delay(250); }
+      else if (xVal > 3000) { a2dp_sink.next(); updateBTDisplay(); delay(250); }
+    }
+  }
+
+  // AI menu: Hold BT 1s to exit back to main
+  if (menuState == MENU_AI) {
+    int btnVal = digitalRead(JOY_BTN);
+    if (btnVal == LOW) {
+      if (btnDownTime == 0) btnDownTime = millis();
+      if (millis() - btnDownTime > 1000) {
+        btnDownTime = 0;
+        menuState = MENU_MAIN;
+        aiWifiConnected = false;
+        drawMenu();
+      }
+    } else {
+      btnDownTime = 0;
+    }
   }
 }
 
@@ -542,6 +610,7 @@ void onBTConnected(esp_a2d_connection_state_t state, void* ptr) {
   if (menuState == MENU_BT) updateBTDisplay();
 }
 
+// --- Rest of WiFi/OTA functions unchanged ---
 void saveWiFiCreds(String ssid, String pass) {
   prefs.begin("wifi-creds", false);
   prefs.putString("ssid", ssid);
@@ -577,7 +646,11 @@ bool connectToWiFi(unsigned long timeoutMs) {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), pass.c_str());
   unsigned long start = millis();
-  while (WiFi.status()!= WL_CONNECTED && millis() - start < timeoutMs) delay(500);
+  while (WiFi.status()!= WL_CONNECTED && millis() - start < timeoutMs) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
   return WiFi.status() == WL_CONNECTED;
 }
 
@@ -757,4 +830,14 @@ void startManualOtaServer() {
   });
   server.begin();
   otaServerRunning = true;
+}
+
+void dacTestTone() {
+  updateDisplay("DAC TEST", "Listen...");
+  dac_output_enable(DAC_CHANNEL_1);
+  for(int i=0; i<255; i++) { dac_output_voltage(DAC_CHANNEL_1, i); delayMicroseconds(1000); }
+  for(int i=255; i>=0; i--) { dac_output_voltage(DAC_CHANNEL_1, i); delayMicroseconds(1000); }
+  dac_output_voltage(DAC_CHANNEL_1, 128);
+  updateDisplay("DAC TEST", "Done");
+  delay(1000);
 }
