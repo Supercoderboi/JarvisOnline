@@ -15,13 +15,9 @@ WebServer server(80);
 BluetoothSerial SerialBT;
 
 bool otaModeActive = false;
-unsigned long btnDownTime = 0;
-bool btnWasDown = false;
-unsigned long lastBlink = 0;
-int blinkCount = 0;
 
 // --- OTA Config ---
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.0.1" // bumped version so it knows to update
 const char* MANIFEST_URL = "https://raw.githubusercontent.com/Supercoderboi/JarvisOnline/master/firmware/manifest.json";
 
 void setup() {
@@ -32,22 +28,9 @@ void setup() {
 
   SerialBT.begin("GhostBoard");
 
-  String s,p;
-  if(loadWiFi(s,p)) {
-    WiFi.begin(s.c_str(), p.c_str());
-    ledBlink(2); // 2 blinks = trying wifi
-    unsigned long start = millis();
-    while(WiFi.status()!= WL_CONNECTED && millis() - start < 10000) delay(500);
-
-    if(WiFi.status() == WL_CONNECTED) {
-      ledBlink(1); // 1 blink = ok
-      checkForGitHubUpdate(); // Auto check on boot
-    } else {
-      startConfigPortal(); // fail-safe
-    }
-  } else {
-    startConfigPortal(); // no creds
-  }
+  // ========== RESCUE MODE: ALWAYS START AP ==========
+  ledBlink(3); // 3 blinks = AP mode
+  startConfigPortal(); // SKIP WIFI COMPLETELY
 }
 
 void loop() {
@@ -70,27 +53,19 @@ void ledBlink(int times) {
   delay(1000); // pause
 }
 
-// 1 blink = Booted OK
-// 2 blinks = Connecting WiFi
 // 3 blinks = AP Config Portal
 // 4 blinks = OTA Mode
-// Solid ON 3s = WiFi Reset done
 
 // ========== BUTTON LOGIC ==========
 void handleButton() {
   int btnVal = digitalRead(JOY_BTN);
+  static bool btnWasDown = false;
+  static unsigned long btnDownTime = 0;
+
   if (btnVal == LOW) {
     if (!btnWasDown) btnDownTime = millis();
     btnWasDown = true;
     unsigned long held = millis() - btnDownTime;
-
-    if (held > 3000 && held < 3200) { // 3s HOLD = OTA MODE
-      ledBlink(4);
-      String s,p;
-      if (!loadWiFi(s,p)) startConfigPortal();
-      else if (WiFi.status()!= WL_CONNECTED) WiFi.begin(s.c_str(), p.c_str());
-      startOtaServer();
-    }
 
     if (held > 5000) { // 5s HOLD = WI-FI RESET
       prefs.begin("wifi-creds", false);
@@ -122,7 +97,7 @@ void saveWiFi(String s, String p) {
 }
 
 void startConfigPortal() {
-  ledBlink(3); // 3 blinks = AP mode
+  otaModeActive = true;
   WiFi.mode(WIFI_AP);
   WiFi.softAP("GhostBoard-Setup", "12345678");
 
@@ -158,7 +133,6 @@ void startConfigPortal() {
   });
 
   server.begin();
-  otaModeActive = true;
   Serial.println("AP Started. Go to 192.168.4.1");
 }
 
@@ -220,13 +194,4 @@ void performOTA(String binUrl) {
     Serial.println("OTA Done. Rebooting");
     ESP.restart();
   }
-}
-
-void startOtaServer() { // Manual OTA mode
-  otaModeActive = true;
-  if(WiFi.getMode()!= WIFI_AP) {
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP("GhostBoard-Setup", "12345678");
-  }
-  startConfigPortal(); // reuses same web page
 }
