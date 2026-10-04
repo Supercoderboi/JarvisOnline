@@ -1,8 +1,6 @@
 #include <fabgl.h>
-
 using namespace fabgl;
 
-// VGA pins
 #define VGA_RED    GPIO_NUM_25
 #define VGA_GREEN  GPIO_NUM_26
 #define VGA_BLUE   GPIO_NUM_27
@@ -10,15 +8,22 @@ using namespace fabgl;
 #define VGA_VSYNC  GPIO_NUM_19
 
 VGAController DisplayController;
-Terminal VGATerminal;
 
-void setup()
-{
-  // Serial input/output
+void setup() {
   Serial.begin(115200);
+  delay(1000);
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("       ESP32 VGA DIAGNOSTIC");
+  Serial.println("================================");
+
+  Serial.println("BOOT");
   delay(500);
 
-  // Start VGA
+  Serial.println("BEFORE VGA BEGIN");
+  delay(500);
+
   DisplayController.begin(
     VGA_RED,
     VGA_GREEN,
@@ -27,38 +32,19 @@ void setup()
     VGA_VSYNC
   );
 
-  // 640x480 @ 60 Hz
+  Serial.println("AFTER VGA BEGIN");
+  delay(1000);
+
   DisplayController.setResolution(VGA_640x480_60Hz);
 
-  // Attach terminal to VGA controller
-  VGATerminal.begin(&DisplayController);
+  Serial.println("AFTER RESOLUTION");
+  delay(1000);
 
-  VGATerminal.write("\033[2J");
-  VGATerminal.write("\033[H");
-
-  VGATerminal.write("================================\r\n");
-  VGATerminal.write("       ESP32 COMPUTER BOOT\r\n");
-  VGATerminal.write("================================\r\n\r\n");
-
-  VGATerminal.write("VGA: OK\r\n");
-  VGATerminal.write("SERIAL: OK\r\n");
-  VGATerminal.write("CPU: ESP32\r\n");
-  VGATerminal.write("MEMORY: OK\r\n\r\n");
-
-  VGATerminal.write("ESP32 COMPUTER READY\r\n");
-  VGATerminal.write("> ");
+  Serial.println("VGA INITIALIZATION COMPLETE");
+  Serial.println("ESP32 IS RUNNING");
 }
 
-void loop()
-{
-  while (Serial.available())
-  {
-    char c = Serial.read();
-
-    // Send character to VGA terminal
-    VGATerminal.write(c);
-
-    // Echo back to Serial
-    Serial.write(c);
-  }
+void loop() {
+  Serial.println("ALIVE");
+  delay(1000);
 }
