@@ -8,7 +8,7 @@ on:
         required: false
         type: string
       sketch_name:
-        description: Sketch folder and.ino base name
+        description: Sketch folder and .ino base name
         required: false
         default: Jarvis
         type: string
@@ -89,6 +89,7 @@ jobs:
           arduino-cli lib update-index
 
           echo "===== DETECTING REQUIRED LIBRARIES ====="
+
           python - <<'PY'
           import re
           import os
@@ -104,38 +105,87 @@ jobs:
               exit(0)
 
           content = sketch_path.read_text(encoding="utf-8")
-          includes = re.findall(r'#include\s*[<"]([\w\s\-_\.]+)\.h[>"]', content)
+
+          includes = re.findall(
+              r'#include\s*[<"]([\w\s\-_\.]+)\.h[>"]',
+              content
+          )
 
           ignored_libs = {
-              "WiFi", "HTTPClient", "WiFiClient", "WiFiClientSecure", "SPI", "Wire", "FS",
-              "SPIFFS", "SD", "Preferences", "Ticker", "Update", "WebServer",
-              "DNSServer", "EEPROM", "BluetoothSerial", "BLEDevice", "BLEUtils",
-              "BLEServer", "BLE2902"
+              "WiFi",
+              "HTTPClient",
+              "WiFiClient",
+              "WiFiClientSecure",
+              "SPI",
+              "Wire",
+              "FS",
+              "SPIFFS",
+              "SD",
+              "Preferences",
+              "Ticker",
+              "Update",
+              "WebServer",
+              "DNSServer",
+              "EEPROM",
+              "BluetoothSerial",
+              "BLEDevice",
+              "BLEUtils",
+              "BLEServer",
+              "BLE2902"
           }
 
+          # Libraries that should be installed directly from GitHub.
           git_mapping = {
-              "BleKeyboard": "https://github.com/T-vK/ESP32-BLE-Keyboard.git",
-              "NimBLEDevice": "https://github.com/h2zero/NimBLE-Arduino.git#1.4.1",
-              "BluetoothA2DPSink": "https://github.com/pschatzmann/ESP32-A2DP.git",
-              "BluetoothAVRCP": "https://github.com/pschatzmann/ESP32-A2DP.git"
+              "BleKeyboard":
+                  "https://github.com/T-vK/ESP32-BLE-Keyboard.git",
+
+              "NimBLEDevice":
+                  "https://github.com/h2zero/NimBLE-Arduino.git#1.4.1",
+
+              "BluetoothA2DPSink":
+                  "https://github.com/pschatzmann/ESP32-A2DP.git",
+
+              "BluetoothAVRCP":
+                  "https://github.com/pschatzmann/ESP32-A2DP.git",
+
+              # FabGL provides <fabgl.h>
+              "fabgl":
+                  "https://github.com/fdivitto/FabGL.git"
           }
 
           registry_mapping = {
-              "ArduinoJson": "ArduinoJson",
-              "Adafruit_GFX": "Adafruit GFX Library",
-              "Adafruit_PCD8544": "Adafruit PCD8544 Nokia 5110 LCD library",
-              "Encoder": "Encoder"
+              "ArduinoJson":
+                  "ArduinoJson",
+
+              "Adafruit_GFX":
+                  "Adafruit GFX Library",
+
+              "Adafruit_PCD8544":
+                  "Adafruit PCD8544 Nokia 5110 LCD library",
+
+              "Encoder":
+                  "Encoder"
           }
 
           processed = set()
 
+          # Special handling for BleKeyboard.
           if "BleKeyboard" in includes:
               if "NimBLEDevice" not in includes:
                   includes.append("NimBLEDevice")
 
-              prefix = "#define USE_NIMBLE\n#define FORCE_NIMBLE\n#include <NimBLEDevice.h>\n"
+              prefix = (
+                  "#define USE_NIMBLE\n"
+                  "#define FORCE_NIMBLE\n"
+                  "#include <NimBLEDevice.h>\n"
+              )
+
               if "USE_NIMBLE" not in content:
-                  print("Injecting explicit NimBLE definitions to strip firmware bloat...")
+                  print(
+                      "Injecting explicit NimBLE definitions "
+                      "to strip firmware bloat..."
+                  )
+
                   content = prefix + content
                   sketch_path.write_text(content, encoding="utf-8")
 
@@ -145,20 +195,65 @@ jobs:
 
               if lib in git_mapping:
                   git_url = git_mapping[lib]
-                  print(f"Installing missing git dependency: {lib} via {git_url}")
-                  subprocess.run(["arduino-cli", "lib", "install", "--git-url", git_url], check=False)
+
+                  print(
+                      f"Installing missing git dependency: "
+                      f"{lib} via {git_url}"
+                  )
+
+                  subprocess.run(
+                      [
+                          "arduino-cli",
+                          "lib",
+                          "install",
+                          "--git-url",
+                          git_url
+                      ],
+                      check=True
+                  )
+
               else:
                   lib_name = registry_mapping.get(lib, lib)
-                  print(f"Installing missing registry dependency: {lib_name}")
-                  subprocess.run(["arduino-cli", "lib", "install", lib_name], check=False)
+
+                  print(
+                      f"Installing missing registry dependency: "
+                      f"{lib_name}"
+                  )
+
+                  subprocess.run(
+                      [
+                          "arduino-cli",
+                          "lib",
+                          "install",
+                          lib_name
+                      ],
+                      check=False
+                  )
 
               processed.add(lib)
+
           PY
+
+          echo "===== INSTALLED LIBRARIES ====="
+          arduino-cli lib list
+
+      - name: Verify FabGL installation
+        shell: bash
+        run: |
+          echo "===== VERIFYING FABGL ====="
+
+          if arduino-cli lib list | grep -qi "FabGL"; then
+            echo "FabGL detected successfully."
+          else
+            echo "ERROR: FabGL was not installed."
+            exit 1
+          fi
 
       - name: Compile Code
         shell: bash
         run: |
           echo "===== COMPILING SKETCH WITH OPTIMIZATIONS ====="
+
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --build-property "compiler.cpp.extra_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DUSE_NIMBLE -DFORCE_NIMBLE -DCONFIG_NIMBLE_CPP_LOG_LEVEL=0" \
@@ -173,12 +268,18 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets firmware
-          BIN_PATH=$(find "$SKETCH_DIR/build" -name "$SKETCH_NAME.ino.bin" | head -n 1)
+
+          BIN_PATH=$(find "$SKETCH_DIR/build" \
+            -name "$SKETCH_NAME.ino.bin" \
+            | head -n 1)
+
           if [ -z "$BIN_PATH" ]; then
             echo "No sketch firmware.bin found" >&2
             exit 1
           fi
+
           cp "$BIN_PATH" release-assets/Jarvis.ino.bin
+
           echo "bin_path=release-assets/Jarvis.ino.bin" >> "$GITHUB_OUTPUT"
           echo "size=$(stat -c%s "$BIN_PATH")" >> "$GITHUB_OUTPUT"
 
@@ -186,6 +287,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p firmware site/firmware
+
           cat > firmware/manifest.json <<EOF
           {
             "build_id": "${BUILD_ID}",
@@ -193,6 +295,7 @@ jobs:
             "size": ${{ steps.firmware.outputs.size }}
           }
           EOF
+
           cp firmware/manifest.json site/firmware/manifest.json
 
       - name: Upload BIN file
@@ -216,6 +319,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add firmware/manifest.json site/firmware/manifest.json
-          git diff --cached --quiet || git commit -m "Update firmware manifest [skip ci]"
+
+          git diff --cached --quiet || \
+            git commit -m "Update firmware manifest [skip ci]"
+
           git push
