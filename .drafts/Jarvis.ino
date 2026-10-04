@@ -10,7 +10,7 @@ using namespace fabgl;
 #define VGA_VSYNC  GPIO_NUM_19
 
 VGAController DisplayController;
-Terminal Terminal(&DisplayController);
+Terminal VGATerminal;
 
 void setup()
 {
@@ -30,38 +30,35 @@ void setup()
   // 640x480 @ 60 Hz
   DisplayController.setResolution(VGA_640x480_60Hz);
 
-  // Start text terminal
-  Terminal.begin();
+  // Attach terminal to VGA controller
+  VGATerminal.begin(&DisplayController);
 
-  Terminal.write("\033[2J");   // Clear screen
-  Terminal.write("\033[H");    // Cursor home
+  VGATerminal.write("\033[2J");
+  VGATerminal.write("\033[H");
 
-  Terminal.write("================================\r\n");
-  Terminal.write("       ESP32 COMPUTER BOOT\r\n");
-  Terminal.write("================================\r\n\r\n");
+  VGATerminal.write("================================\r\n");
+  VGATerminal.write("       ESP32 COMPUTER BOOT\r\n");
+  VGATerminal.write("================================\r\n\r\n");
 
-  Terminal.write("VGA: OK\r\n");
-  Terminal.write("SERIAL: OK\r\n");
-  Terminal.write("CPU: ESP32\r\n");
-  Terminal.write("MEMORY: OK\r\n\r\n");
+  VGATerminal.write("VGA: OK\r\n");
+  VGATerminal.write("SERIAL: OK\r\n");
+  VGATerminal.write("CPU: ESP32\r\n");
+  VGATerminal.write("MEMORY: OK\r\n\r\n");
 
-  Terminal.write("ESP32 COMPUTER READY\r\n");
-  Terminal.write("> ");
+  VGATerminal.write("ESP32 COMPUTER READY\r\n");
+  VGATerminal.write("> ");
 }
 
 void loop()
 {
-  // Anything typed into Serial Monitor
-  // gets displayed on the VGA screen.
-
   while (Serial.available())
   {
     char c = Serial.read();
 
     // Send character to VGA terminal
-    Terminal.write(c);
+    VGATerminal.write(c);
 
-    // Echo it back to Serial Monitor too
+    // Echo back to Serial
     Serial.write(c);
   }
 }
